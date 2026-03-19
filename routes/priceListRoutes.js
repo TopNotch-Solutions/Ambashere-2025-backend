@@ -7,6 +7,7 @@ const { tokenAuthMiddleware, checkAdmin, checkAllUsers } = require("../middlewar
 router.use(tokenAuthMiddleware);
 
 router.get("/", checkAllUsers,  priceListController.getDeviceList);
+router.get("/device-price-list", checkAllUsers,  priceListController.newDeviceList);
 router.post("/upload-device-list", checkAdmin, priceListController.uploadDeviceList);
 
 module.exports = router;

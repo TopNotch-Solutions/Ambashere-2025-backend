@@ -291,7 +291,7 @@ cron.schedule('* * * * *', async () => {
   }
 });
 
-cron.schedule('*/30 * * * *', async () => {
+cron.schedule('*/1 * * * *', async () => {
   const transaction = await sequelize.transaction();
 
   try {
@@ -323,7 +323,9 @@ cron.schedule('*/30 * * * *', async () => {
 
     const formattedData = deviceCosts.map(device => ({
       device_name: device.device_name,
-      amount: parseFloat(device.amount)
+      amount: parseFloat(device.amount),
+      device_group: device.device_group,
+      staff_discounted_amount: parseFloat(device.staff_discounted_amount)
     }));
 
     await CdrLiveDeviceCost.bulkCreate(formattedData, { transaction });

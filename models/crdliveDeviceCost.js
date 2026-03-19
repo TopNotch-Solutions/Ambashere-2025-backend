@@ -13,7 +13,15 @@ const CdrLiveDeviceCost = sequelize.define(
       type: DataTypes.STRING(255),
       allowNull: false,
     },
+    device_group: {
+      type: DataTypes.STRING(255),
+      allowNull: false,
+    },
     amount: {
+      type: DataTypes.FLOAT(10, 2),
+      allowNull: false,
+    },
+    staff_discounted_amount: {
       type: DataTypes.FLOAT(10, 2),
       allowNull: false,
     }

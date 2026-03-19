@@ -1,6 +1,7 @@
 const multer = require("multer");
 const path = require("path");
 const fs = require("fs");
+const CdrLiveDeviceCost = require("../models/crdliveDeviceCost");
 
 // Define storage and upload options for multer
 const storage = multer.diskStorage({
@@ -55,3 +56,16 @@ exports.getDeviceList = async (req, res) => {
     }
   });
 };
+
+exports.newDeviceList = async (req, res) => {
+  try{
+    const newDeviceList = await CdrLiveDeviceCost.findAll();
+    return res.status(200).json({
+      status: "SUCCESS",
+      message: "New device cost list",
+      data: newDeviceList
+    });
+  }catch(error){
+
+  }
+}
