@@ -291,235 +291,235 @@ cron.schedule('* * * * *', async () => {
   }
 });
 
-cron.schedule('*/1 * * * *', async () => {
-  const transaction = await sequelize.transaction();
+// cron.schedule('*/1 * * * *', async () => {
+//   const transaction = await sequelize.transaction();
 
-  try {
-    const response = await fetch(process.env.DEVICE_COST_ENDPOINT, {
-      method: 'GET',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': process.env.AUTHORIZATION,
-        'X-Username': process.env.X_USERNAME,
-        'X-Password': process.env.X_PASSWORD
-      }
-    });
+//   try {
+//     const response = await fetch(process.env.DEVICE_COST_ENDPOINT, {
+//       method: 'GET',
+//       headers: {
+//         'Content-Type': 'application/json',
+//         'Authorization': process.env.AUTHORIZATION,
+//         'X-Username': process.env.X_USERNAME,
+//         'X-Password': process.env.X_PASSWORD
+//       }
+//     });
 
-    if (!response.ok) {
-      throw new Error(`HTTP error! Status: ${response.status}`);
-    }
+//     if (!response.ok) {
+//       throw new Error(`HTTP error! Status: ${response.status}`);
+//     }
 
-    const deviceCosts = await response.json();
+//     const deviceCosts = await response.json();
 
-    if (!Array.isArray(deviceCosts) || deviceCosts.length === 0) {
-      throw new Error("Invalid or empty device cost response");
-    }
+//     if (!Array.isArray(deviceCosts) || deviceCosts.length === 0) {
+//       throw new Error("Invalid or empty device cost response");
+//     }
 
-    await CdrLiveDeviceCost.destroy({
-      where: {},
-      truncate: true,
-      transaction
-    });
+//     await CdrLiveDeviceCost.destroy({
+//       where: {},
+//       truncate: true,
+//       transaction
+//     });
 
-    const formattedData = deviceCosts.map(device => ({
-      device_name: device.device_name,
-      amount: parseFloat(device.amount),
-      device_group: device.device_group,
-      staff_discounted_amount: parseFloat(device.staff_discounted_amount)
-    }));
+//     const formattedData = deviceCosts.map(device => ({
+//       device_name: device.device_name,
+//       amount: parseFloat(device.amount),
+//       device_group: device.device_group,
+//       staff_discounted_amount: parseFloat(device.staff_discounted_amount)
+//     }));
 
-    await CdrLiveDeviceCost.bulkCreate(formattedData, { transaction });
+//     await CdrLiveDeviceCost.bulkCreate(formattedData, { transaction });
 
-    await transaction.commit();
+//     await transaction.commit();
 
-    console.log("Device costs replaced successfully");
+//     console.log("Device costs replaced successfully");
 
-  } catch (error) {
-    await transaction.rollback();
+//   } catch (error) {
+//     await transaction.rollback();
 
-    console.error("Transaction rolled back:", error.message);
-  }
-});
+//     console.error("Transaction rolled back:", error.message);
+//   }
+// });
 
-cron.schedule("*/1 * * * *", async () => {
-  const transaction = await sequelize.transaction();
+// cron.schedule("*/1 * * * *", async () => {
+//   const transaction = await sequelize.transaction();
 
-  try {
-    const response = await fetch(process.env.EMPLOYEE_CONTRACT_DETAILS, {
-      method: "GET",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": process.env.AUTHORIZATION,
-        "X-Username": process.env.X_USERNAME,
-        "X-Password": process.env.X_PASSWORD,
-      },
-    });
+//   try {
+//     const response = await fetch(process.env.EMPLOYEE_CONTRACT_DETAILS, {
+//       method: "GET",
+//       headers: {
+//         "Content-Type": "application/json",
+//         "Authorization": process.env.AUTHORIZATION,
+//         "X-Username": process.env.X_USERNAME,
+//         "X-Password": process.env.X_PASSWORD,
+//       },
+//     });
 
-    if (!response.ok) {
-      throw new Error(`HTTP error! Status: ${response.status}`);
-    }
+//     if (!response.ok) {
+//       throw new Error(`HTTP error! Status: ${response.status}`);
+//     }
 
-    const contractData = await response.json();
+//     const contractData = await response.json();
 
-    if (!Array.isArray(contractData) || contractData.length === 0) {
-      throw new Error("Invalid or empty contract data");
-    }
+//     if (!Array.isArray(contractData) || contractData.length === 0) {
+//       throw new Error("Invalid or empty contract data");
+//     }
 
-    await CdrLiveEmployeeContractDetails.destroy({
-      where: {},
-      truncate: true,
-      transaction,
-    });
+//     await CdrLiveEmployeeContractDetails.destroy({
+//       where: {},
+//       truncate: true,
+//       transaction,
+//     });
 
-    const formattedData = contractData.map((c) => ({
-      package: c.package,
-      msisdn: c.msisdn,
-      device: c.device,
-      contract_duration: parseFloat(c.contract_duration),
-      contract_start_date: new Date(c.contract_start_date),
-      contract_end_date: new Date(c.contract_end_date),
-      package_price: parseFloat(c.package_price),
-      device_initial_cost: parseFloat(c.device_initial_cost),
-      device_upfront_payment: parseFloat(c.device_upfront_payment),
-      device_payout_balance: parseFloat(c.device_payout_balance),
-      device_monthly_price: parseFloat(c.device_monthly_price),
-      serviceplan_monthly_price: parseFloat(c.serviceplan_monthly_price),
-      subscription_status: c.subscription_status,
-      staff_msisdn: c.staff_msisdn,
-      employee_code: c.employee_code,
-    }));
+//     const formattedData = contractData.map((c) => ({
+//       package: c.package,
+//       msisdn: c.msisdn,
+//       device: c.device,
+//       contract_duration: parseFloat(c.contract_duration),
+//       contract_start_date: new Date(c.contract_start_date),
+//       contract_end_date: new Date(c.contract_end_date),
+//       package_price: parseFloat(c.package_price),
+//       device_initial_cost: parseFloat(c.device_initial_cost),
+//       device_upfront_payment: parseFloat(c.device_upfront_payment),
+//       device_payout_balance: parseFloat(c.device_payout_balance),
+//       device_monthly_price: parseFloat(c.device_monthly_price),
+//       serviceplan_monthly_price: parseFloat(c.serviceplan_monthly_price),
+//       subscription_status: c.subscription_status,
+//       staff_msisdn: c.staff_msisdn,
+//       employee_code: c.employee_code,
+//     }));
 
-    await CdrLiveEmployeeContractDetails.bulkCreate(formattedData, { transaction });
+//     await CdrLiveEmployeeContractDetails.bulkCreate(formattedData, { transaction });
 
-    await transaction.commit();
+//     await transaction.commit();
 
-    console.log("Employee contract details updated successfully");
+//     console.log("Employee contract details updated successfully");
 
-  } catch (error) {
-    await transaction.rollback();
-    console.error("Transaction rolled back:", error.message);
-  }
-});
+//   } catch (error) {
+//     await transaction.rollback();
+//     console.error("Transaction rolled back:", error.message);
+//   }
+// });
 
-cron.schedule("*/1 * * * *", async () => {
-  const transaction = await sequelize.transaction();
+// cron.schedule("*/1 * * * *", async () => {
+//   const transaction = await sequelize.transaction();
 
-  try {
-    const response = await fetch(process.env.EMPLOYEE_DETAILS, {
-      method: "GET",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": process.env.AUTHORIZATION,
-        "X-Username": process.env.X_USERNAME,
-        "X-Password": process.env.X_PASSWORD,
-      },
-    });
+//   try {
+//     const response = await fetch(process.env.EMPLOYEE_DETAILS, {
+//       method: "GET",
+//       headers: {
+//         "Content-Type": "application/json",
+//         "Authorization": process.env.AUTHORIZATION,
+//         "X-Username": process.env.X_USERNAME,
+//         "X-Password": process.env.X_PASSWORD,
+//       },
+//     });
 
-    if (!response.ok) {
-      throw new Error(`HTTP error! Status: ${response.status}`);
-    }
+//     if (!response.ok) {
+//       throw new Error(`HTTP error! Status: ${response.status}`);
+//     }
 
-    const employeeData = await response.json();
+//     const employeeData = await response.json();
 
-    if (!Array.isArray(employeeData) || employeeData.length === 0) {
-      throw new Error("Invalid or empty employee data");
-    }
+//     if (!Array.isArray(employeeData) || employeeData.length === 0) {
+//       throw new Error("Invalid or empty employee data");
+//     }
 
-    await CdrLiveEmployeeDetail.destroy({
-      where: {},
-      truncate: true,
-      transaction,
-    });
+//     await CdrLiveEmployeeDetail.destroy({
+//       where: {},
+//       truncate: true,
+//       transaction,
+//     });
 
-    const formattedData = employeeData.map((emp) => ({
-      msisdn: emp.msisdn,
-      employee_code: emp.employee_code,
-      full_names: emp.full_names,
-      last_name: emp.last_name,
-      username: emp.username || null,
-      email: emp.email || null,
-      gender: emp.gender || null,
-      position: emp.position || null,
-      division: emp.division || null,
-      employee_category: emp.employee_category || null,
-      employment_status: emp.employment_status || null,
-      employment_start_date: emp.employment_start_date
-        ? new Date(emp.employment_start_date)
-        : null,
-      employment_end_date: emp.employment_end_date
-        ? new Date(emp.employment_end_date)
-        : null,
-      serviceplan: emp.serviceplan || null,
-      airtime_allocation: emp.airtime_allocation
-        ? parseFloat(emp.airtime_allocation)
-        : 0,
-    }));
+//     const formattedData = employeeData.map((emp) => ({
+//       msisdn: emp.msisdn,
+//       employee_code: emp.employee_code,
+//       full_names: emp.full_names,
+//       last_name: emp.last_name,
+//       username: emp.username || null,
+//       email: emp.email || null,
+//       gender: emp.gender || null,
+//       position: emp.position || null,
+//       division: emp.division || null,
+//       employee_category: emp.employee_category || null,
+//       employment_status: emp.employment_status || null,
+//       employment_start_date: emp.employment_start_date
+//         ? new Date(emp.employment_start_date)
+//         : null,
+//       employment_end_date: emp.employment_end_date
+//         ? new Date(emp.employment_end_date)
+//         : null,
+//       serviceplan: emp.serviceplan || null,
+//       airtime_allocation: emp.airtime_allocation
+//         ? parseFloat(emp.airtime_allocation)
+//         : 0,
+//     }));
 
-    await CdrLiveEmployeeDetail.bulkCreate(formattedData, { transaction });
+//     await CdrLiveEmployeeDetail.bulkCreate(formattedData, { transaction });
 
-    await transaction.commit();
+//     await transaction.commit();
 
-    console.log("Employee details updated successfully");
+//     console.log("Employee details updated successfully");
 
-  } catch (error) {
-    await transaction.rollback();
-    console.error("Transaction rolled back:", error.message);
-  }
-});
+//   } catch (error) {
+//     await transaction.rollback();
+//     console.error("Transaction rolled back:", error.message);
+//   }
+// });
 
-cron.schedule("*/1 * * * *", async () => {
-  const transaction = await sequelize.transaction();
+// cron.schedule("*/1 * * * *", async () => {
+//   const transaction = await sequelize.transaction();
 
-  try {
-    const response = await fetch(process.env.EMPLOYEE_HANDSET_DETAILS, {
-      method: "GET",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": process.env.AUTHORIZATION,
-        "X-Username": process.env.X_USERNAME,
-        "X-Password": process.env.X_PASSWORD,
-      },
-    });
+//   try {
+//     const response = await fetch(process.env.EMPLOYEE_HANDSET_DETAILS, {
+//       method: "GET",
+//       headers: {
+//         "Content-Type": "application/json",
+//         "Authorization": process.env.AUTHORIZATION,
+//         "X-Username": process.env.X_USERNAME,
+//         "X-Password": process.env.X_PASSWORD,
+//       },
+//     });
 
-    if (!response.ok) {
-      throw new Error(`HTTP error! Status: ${response.status}`);
-    }
+//     if (!response.ok) {
+//       throw new Error(`HTTP error! Status: ${response.status}`);
+//     }
 
-    const handsetData = await response.json();
+//     const handsetData = await response.json();
 
-    if (!Array.isArray(handsetData) || handsetData.length === 0) {
-      throw new Error("Invalid or empty handset data");
-    }
+//     if (!Array.isArray(handsetData) || handsetData.length === 0) {
+//       throw new Error("Invalid or empty handset data");
+//     }
 
  
-    await CdrLiveEmployeeHandsetDetail.destroy({
-      where: {},
-      truncate: true,
-      transaction,
-    });
+//     await CdrLiveEmployeeHandsetDetail.destroy({
+//       where: {},
+//       truncate: true,
+//       transaction,
+//     });
 
-    const formattedData = handsetData.map((h) => ({
-      mr_number: h.mr_number,
-      employee_code: h.employee_code,
-      employee_name: h.employee_name,
-      part_no: h.part_no,
-      description: h.description || null,
-      fixed_asset_code: h.fixed_asset_code || null,
-      cost: h.cost ? parseFloat(h.cost) : 0,
-      renewal_date: h.renewal_date ? new Date(h.renewal_date) : null,
-    }));
+//     const formattedData = handsetData.map((h) => ({
+//       mr_number: h.mr_number,
+//       employee_code: h.employee_code,
+//       employee_name: h.employee_name,
+//       part_no: h.part_no,
+//       description: h.description || null,
+//       fixed_asset_code: h.fixed_asset_code || null,
+//       cost: h.cost ? parseFloat(h.cost) : 0,
+//       renewal_date: h.renewal_date ? new Date(h.renewal_date) : null,
+//     }));
 
-    await CdrLiveEmployeeHandsetDetail.bulkCreate(formattedData, { transaction });
+//     await CdrLiveEmployeeHandsetDetail.bulkCreate(formattedData, { transaction });
 
-    await transaction.commit();
+//     await transaction.commit();
 
-    console.log("Employee handset details updated successfully");
+//     console.log("Employee handset details updated successfully");
 
-  } catch (error) {
-    await transaction.rollback();
-    console.error("Transaction rolled back:", error.message);
-  }
-});
+//   } catch (error) {
+//     await transaction.rollback();
+//     console.error("Transaction rolled back:", error.message);
+//   }
+// });
 
 
 app.use(errorHandler);
