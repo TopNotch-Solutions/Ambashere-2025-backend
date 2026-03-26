@@ -6,7 +6,7 @@ exports.createToken = (EmployeeCode, RoleID) => {
     { EmployeeCode, RoleID },
     process.env.TOKEN_KEY,
     {
-      expiresIn: '4h',
+      expiresIn: '1h',
     }
   );
 };
@@ -16,7 +16,7 @@ exports.createRefreshToken = (EmployeeCode, RoleID) => {
     { EmployeeCode, RoleID },
     process.env.REFRESH_KEY,
     {
-      expiresIn: '4h',
+      expiresIn: '1h',
     }
   );
 };

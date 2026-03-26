@@ -335,6 +335,34 @@ exports.getActiveStaff = async (req, res) => {
     });
   }
 };
+exports.getStaffAllocationByEmployeeCode = async (req, res) => {
+  const {employeeCode} = req.params;
+  try {
+    const employee = await Staff.findOne({
+      where: {
+        EmployeeCode: employeeCode,
+      },
+    });
+
+    if(!employee){
+      return res.status(404).json({
+      message: "The employee with the provided code does not exist on the system",
+    });
+    }
+    const myAllocation = await Allocation.findOne({where: {AllocationID: employee.AllocationID}});
+    if(!myAllocation){
+     return res.status(404).json({ message: "No allocation. Please contact your admin." });
+   }
+    return res.status(200).json({myAllocation})
+  } catch (error) {
+    logger.error(error);
+    res.status(500).json({
+      message: "Failed to retrieve active staff details:",
+      error: process.env.NODE_ENV === "production" ? undefined : error.message,
+    });
+  }
+};
+
 
 // Get Count of Inactive Staff
 exports.getInactiveStaff = async (req, res) => {

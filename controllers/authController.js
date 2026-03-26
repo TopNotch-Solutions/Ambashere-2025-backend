@@ -19,36 +19,31 @@ exports.login = async (req, res) => {
   }
 
   try {
-    // Log the username before finding the staff member
-    console.log("Searching for staff with Username:", Username);
 
-    const staff = await Staff.findOne({
+    // LDAP authentication
+    authenticate(Username, Password,async (err, userDN) => {
+      if (err) {
+        console.error("We're experiencing technical difficulties. Please try again in a few minutes.:", err);
+        return res.status(401).json({ message: "We're experiencing technical difficulties. Please try again in a few minutes." });
+      }
+
+      console.log("LDAP authentication successful. User DN:", userDN);
+      if(!userDN){
+       return res.status(401).json({ message: "We're experiencing technical difficulties. Please try again in a few minutes."});
+      }
+
+      const staff = await Staff.findOne({
       where: {
-        Username,
+        Email: userDN.mail,
         EmploymentStatus: "Active", // Make sure this matches your DB structure
       },
     });
-
+    console.log("My staff today",userDN.mail)
     // Check if the staff is found
     if (!staff) {
       console.error(`Staff not found for Username: ${Username}`);
       return res.status(401).json({ message: "Invalid credentials" });
     }
-
-    console.log("Staff member found:", staff);
-
-    // LDAP authentication
-    authenticate(Username, Password, (err, userDN) => {
-      if (err) {
-        console.error("LDAP authentication failed:", err);
-        return res.status(401).json({ message: "LDAP authentication failed" });
-      }
-
-      console.log("LDAP authentication successful. User DN:", userDN);
-if(!userDN){
-   return res.status(401).json({ message: "LDAP authentication failed"});
-}
-      // Proceed to generate tokens
       console.log(
         "Generating tokens for EmployeeCode:",
         staff.EmployeeCode,

@@ -19,6 +19,7 @@ router.get("/permanentEmployees", checkAdmin,  staffController.getPermanentStaff
 router.get("/temporaryEmployees", checkAdmin,  staffController.getTemporaryStaff);
 router.get("/inactiveEmployees", checkAdmin,  staffController.getInactiveStaff);
 router.get("/activeEmployees", checkAdmin,  staffController.getActiveStaff);
+router.get("/staff/handset-allocation/:employeeCode", checkAdmin,  staffController.getStaffAllocationByEmployeeCode);
 
 router.get("/maleEmployees", checkAdmin,  staffController.getMaleStaff);
 router.get("/femaleEmployees", checkAdmin,  staffController.getFemaleStaff);
