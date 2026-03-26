@@ -13,6 +13,10 @@ const ldapConfig = {
 const client = ldap.createClient({
     url: ldapConfig.url,
     reconnect: true,
+    tlsOptions: {
+        // If the server uses a self-signed certificate and you're on a secure internal network:
+        rejectUnauthorized: false 
+    },
     timeout: 5000, // Timeout for connection in milliseconds
     connectTimeout: 10000 // Timeout for connection setup
 });
