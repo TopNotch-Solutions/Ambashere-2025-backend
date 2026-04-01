@@ -7,79 +7,140 @@ const jwt = require("jsonwebtoken");
 const logger = require("../middlewares/errorLogger");
 const authenticate = require("../middlewares/ldapAuth");
 
+// exports.login = async (req, res) => {
+//   const { Username, Password } = req.body;
+
+//   console.log("Received login request:", req.body); // Log the full request body
+
+//   if (!Username || !Password) {
+//     return res
+//       .status(400)
+//       .json({ message: "Username and Password are required" });
+//   }
+
+//   try {
+
+//     // LDAP authentication
+//     authenticate(Username, Password,async (err, userDN) => {
+//       if (err) {
+//         console.error("We're experiencing technical difficulties. Please try again in a few minutes.:", err);
+//         return res.status(401).json({ message: "We're experiencing technical difficulties. Please try again in a few minutes." });
+//       }
+
+//       console.log("LDAP authentication successful. User DN:", userDN);
+//       if(!userDN){
+//        return res.status(401).json({ message: "We're experiencing technical difficulties. Please try again in a few minutes."});
+//       }
+
+//       const staff = await Staff.findOne({
+//       where: {
+//         Email: userDN.mail,
+//         EmploymentStatus: "Active", // Make sure this matches your DB structure
+//       },
+//     });
+//     console.log("My staff today",userDN.mail)
+//     // Check if the staff is found
+//     if (!staff) {
+//       console.error(`Staff not found for Username: ${Username}`);
+//       return res.status(401).json({ message: "Invalid credentials" });
+//     }
+//       console.log(
+//         "Generating tokens for EmployeeCode:",
+//         staff.EmployeeCode,
+//         "and RoleID:",
+//         staff.RoleID
+//       );
+
+//       const token = createToken(staff.EmployeeCode, staff.RoleID);
+//       const refreshToken = createRefreshToken(staff.EmployeeCode, staff.RoleID);
+
+//       if (!token || !refreshToken) {
+//         console.error("Token generation failed");
+//         return res.status(500).json({ message: "Failed to generate tokens" });
+//       }
+
+//       console.log("Tokens generated successfully");
+
+//       // Send the response with tokens
+//       return res
+//         .header("Authorization", `Bearer ${token}`)
+//         .header("X-Refresh-Token", refreshToken)
+//         .status(200)
+//         .json({
+//           message: `User authenticated: ${userDN.dn}`,
+//           employee: staff,
+//         });
+//     });
+//   } catch (error) {
+//     console.error("Login error:", error);
+//     return res.status(500).json({
+//       message: "Failed to login",
+//       error: process.env.NODE_ENV === "production" ? undefined : error.message,
+//     });
+//   }
+// };
+
 exports.login = async (req, res) => {
   const { Username, Password } = req.body;
 
-  console.log("Received login request:", req.body); // Log the full request body
-
   if (!Username || !Password) {
-    return res
-      .status(400)
-      .json({ message: "Username and Password are required" });
+    return res.status(400).json({ message: "Username and Password are required" });
   }
 
   try {
+    // 1. Wrap LDAP in a Promise to use await
+    const userDN = await new Promise((resolve, reject) => {
+      authenticate(Username, Password, (err, user) => {
+        if (err) return reject(err);
+        resolve(user);
+      });
+    });
 
-    // LDAP authentication
-    authenticate(Username, Password,async (err, userDN) => {
-      if (err) {
-        console.error("We're experiencing technical difficulties. Please try again in a few minutes.:", err);
-        return res.status(401).json({ message: "We're experiencing technical difficulties. Please try again in a few minutes." });
-      }
+    if (!userDN) {
+      return res.status(401).json({ message: "Technical difficulties. Please try again." });
+    }
 
-      console.log("LDAP authentication successful. User DN:", userDN);
-      if(!userDN){
-       return res.status(401).json({ message: "We're experiencing technical difficulties. Please try again in a few minutes."});
-      }
-
-      const staff = await Staff.findOne({
+    // 2. Database lookup
+    const staff = await Staff.findOne({
       where: {
         Email: userDN.mail,
-        EmploymentStatus: "Active", // Make sure this matches your DB structure
+        EmploymentStatus: "Active",
       },
     });
-    console.log("My staff today",userDN.mail)
-    // Check if the staff is found
+
     if (!staff) {
-      console.error(`Staff not found for Username: ${Username}`);
       return res.status(401).json({ message: "Invalid credentials" });
     }
-      console.log(
-        "Generating tokens for EmployeeCode:",
-        staff.EmployeeCode,
-        "and RoleID:",
-        staff.RoleID
-      );
 
-      const token = createToken(staff.EmployeeCode, staff.RoleID);
-      const refreshToken = createRefreshToken(staff.EmployeeCode, staff.RoleID);
+    // 3. Token generation
+    const token = createToken(staff.EmployeeCode, staff.RoleID);
+    const refreshToken = createRefreshToken(staff.EmployeeCode, staff.RoleID);
 
-      if (!token || !refreshToken) {
-        console.error("Token generation failed");
-        return res.status(500).json({ message: "Failed to generate tokens" });
-      }
+    if (!token || !refreshToken) {
+      return res.status(500).json({ message: "Failed to generate tokens" });
+    }
 
-      console.log("Tokens generated successfully");
+    // 4. Single Final Response
+    return res
+      .header("Authorization", `Bearer ${token}`)
+      .header("X-Refresh-Token", refreshToken)
+      .status(200)
+      .json({
+        message: `User authenticated: ${userDN.displayName}`,
+        employee: staff,
+      });
 
-      // Send the response with tokens
-      return res
-        .header("Authorization", `Bearer ${token}`)
-        .header("X-Refresh-Token", refreshToken)
-        .status(200)
-        .json({
-          message: `User authenticated: ${userDN.dn}`,
-          employee: staff,
-        });
-    });
   } catch (error) {
     console.error("Login error:", error);
-    return res.status(500).json({
-      message: "Failed to login",
-      error: process.env.NODE_ENV === "production" ? undefined : error.message,
-    });
+    
+    // Check if headers were already sent to prevent the ERR_HTTP_HEADERS_SENT crash
+    if (!res.headersSent) {
+      return res.status(error.message === 'Invalid credentials' ? 401 : 500).json({
+        message: error.message || "Failed to login",
+      });
+    }
   }
 };
-
 exports.logout = (req, res) => {
   try {
     // Clear tokens on the client-side

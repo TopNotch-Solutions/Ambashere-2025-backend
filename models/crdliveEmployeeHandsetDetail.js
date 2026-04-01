@@ -41,6 +41,14 @@ const CdrLiveEmployeeHandsetDetail = sequelize.define(
       type: DataTypes.DATE,
       allowNull: true,
     },
+    collected_date: {
+      type: DataTypes.DATE,
+      allowNull: true,
+    },
+    status: {
+      type: DataTypes.ENUM("active", "done"),
+      allowNull: false,
+    }
   },
   {
     tableName: "crdlive_employee_handset_detail",

@@ -486,7 +486,7 @@ cron.schedule('* * * * *', async () => {
 //     }
 
 //     const handsetData = await response.json();
-
+//     console.log("console log",handsetData)
 //     if (!Array.isArray(handsetData) || handsetData.length === 0) {
 //       throw new Error("Invalid or empty handset data");
 //     }
@@ -507,6 +507,8 @@ cron.schedule('* * * * *', async () => {
 //       fixed_asset_code: h.fixed_asset_code || null,
 //       cost: h.cost ? parseFloat(h.cost) : 0,
 //       renewal_date: h.renewal_date ? new Date(h.renewal_date) : null,
+//       collected_date: h.collected_date ? new Date(h.collected_date) : null,
+//       status: h.status || null
 //     }));
 
 //     await CdrLiveEmployeeHandsetDetail.bulkCreate(formattedData, { transaction });
