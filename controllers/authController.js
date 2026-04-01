@@ -80,6 +80,31 @@ const authenticate = require("../middlewares/ldapAuth");
 //   }
 // };
 
+const authenticateWithRetry = async (username, password, retries = 3, delay = 1500) => {
+  for (let i = 0; i < retries; i++) {
+    try {
+      return await new Promise((resolve, reject) => {
+        // Calling your existing authenticate logic
+        authenticate(username, password, (err, user) => {
+          if (err) return reject(err);
+          resolve(user);
+        });
+      });
+    } catch (error) {
+      const isNetworkIssue = error.message.includes('timeout') || error.message.includes('closed');
+      
+      // If it's a network issue and we have retries left, wait and try again
+      if (isNetworkIssue && i < retries - 1) {
+        console.warn(`LDAP Attempt ${i + 1} failed (Network). Retrying in ${delay}ms...`);
+        await new Promise(res => setTimeout(res, delay));
+        continue;
+      }
+      
+      // If it's "Invalid credentials" or we are out of retries, throw the error
+      throw error;
+    }
+  }
+};
 exports.login = async (req, res) => {
   const { Username, Password } = req.body;
 
@@ -88,13 +113,8 @@ exports.login = async (req, res) => {
   }
 
   try {
-    // 1. Wrap LDAP in a Promise to use await
-    const userDN = await new Promise((resolve, reject) => {
-      authenticate(Username, Password, (err, user) => {
-        if (err) return reject(err);
-        resolve(user);
-      });
-    });
+
+    const userDN = await authenticateWithRetry(Username, Password);
 
     if (!userDN) {
       return res.status(401).json({ message: "Technical difficulties. Please try again." });
