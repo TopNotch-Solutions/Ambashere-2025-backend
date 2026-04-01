@@ -83,24 +83,21 @@ const authenticate = require("../middlewares/ldapAuth");
 const authenticateWithRetry = async (username, password, retries = 3, delay = 1500) => {
   for (let i = 0; i < retries; i++) {
     try {
+      console.log(`LDAP Attempt ${i + 1} starting...`);
       return await new Promise((resolve, reject) => {
-        // Calling your existing authenticate logic
         authenticate(username, password, (err, user) => {
           if (err) return reject(err);
           resolve(user);
         });
       });
     } catch (error) {
-      const isNetworkIssue = error.message.includes('timeout') || error.message.includes('closed');
-      
-      // If it's a network issue and we have retries left, wait and try again
-      if (isNetworkIssue && i < retries - 1) {
-        console.warn(`LDAP Attempt ${i + 1} failed (Network). Retrying in ${delay}ms...`);
+      // If we hit a "closed" or "timeout" error, or even a 401, we try again
+      if (i < retries - 1) {
+        console.warn(`Attempt ${i + 1} failed (${error.message}). Retrying in ${delay}ms...`);
         await new Promise(res => setTimeout(res, delay));
-        continue;
+        continue; 
       }
-      
-      // If it's "Invalid credentials" or we are out of retries, throw the error
+      // If all 3 attempts fail, throw the final error
       throw error;
     }
   }
