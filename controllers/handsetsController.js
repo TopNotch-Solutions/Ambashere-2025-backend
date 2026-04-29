@@ -1,4 +1,5 @@
 const Handsets = require("../models/Handsets");
+const CdrLiveEmployeeHandsetDetail = require("../models/crdliveEmployeeHandsetDetail");
 const sequelize = require("../config/database");
 const logger = require("../middlewares/errorLogger");
 const Staff = require("../models/Staff");
@@ -26,8 +27,23 @@ exports.getHandsets = async (req, res) => {
 exports.getHandsetsUser = async (req, res) => {
   const employeeCode = req.params.employeeCode;
   try {
-    const handsets = await Handsets.findAll({where:{EmployeeCode: employeeCode},order: [['RequestDate', 'DESC']],});
-    console.log("My handsets: ",handsets);
+    const cdrHandsets = await CdrLiveEmployeeHandsetDetail.findAll({
+      where: { employee_code: employeeCode },
+      order: [["createdAt", "DESC"]],
+    });
+    const handsets = cdrHandsets.map((item) => ({
+      id: item.id,
+      EmployeeCode: item.employee_code,
+      HandsetName: item.description || item.part_no,
+      HandsetPrice: Number(item.cost || 0),
+      MRNumber: item.mr_number,
+      FixedAssetCode: item.fixed_asset_code,
+      RenewalDate: item.renewal_date,
+      CollectionDate: item.collected_date,
+      Status: item.status === "active" ? "Active" : "Completed",
+      RequestDate: item.createdAt,
+    }));
+    console.log("My handsets: ", handsets);
     res.status(200).json(handsets);
   } catch (error) {
     logger.error("Error retrieving device details:", error);
@@ -171,7 +187,24 @@ exports.getHandsetsByStaff = async (req, res) => {
     const formattedStartDate = employmentStartDate.toISOString().split("T")[0];
     const formattedTwoYearsLater = twoYearsLater.toISOString().split("T")[0];
 
-    const handsets = await Handsets.findAll({where:{EmployeeCode: employeeCode},order: [['RequestDate', 'DESC']],});
+    const cdrHandsets = await CdrLiveEmployeeHandsetDetail.findAll({
+      where: { employee_code: employeeCode },
+      order: [["createdAt", "DESC"]],
+    });
+
+    const handsets = cdrHandsets.map((item) => ({
+      id: item.id,
+      EmployeeCode: item.employee_code,
+      HandsetName: item.description || item.part_no,
+      HandsetPrice: Number(item.cost || 0),
+      MRNumber: item.mr_number,
+      FixedAssetCode: item.fixed_asset_code,
+      RenewalDate: item.renewal_date,
+      CollectionDate: item.collected_date,
+      Status: item.status === "active" ? "Active" : "Completed",
+      RequestDate: item.createdAt,
+    }));
+    console.log("My handsets new: ", handsets);
 
     return res.json({
       status: handsets.length === 0 ? 1 : 2,

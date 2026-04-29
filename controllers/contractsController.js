@@ -154,12 +154,18 @@ exports.getStaffContractById = async (req, res) => {
   try {
     const employeeCode = req.params.employeeCode;
 
-    const query = `SELECT c.*, p.PackageName, e.FullName, a.AirtimeAllocation
-      FROM contracts c
-      INNER JOIN employees e ON c.EmployeeCode = e.EmployeeCode
-      INNER JOIN packages p ON c.PackageID = p.PackageID
+    const query = `SELECT
+      c.*,
+      c.package AS PackageName,
+      c.employee_code AS EmployeeCode,
+      (COALESCE(c.device_monthly_price, 0) + COALESCE(c.serviceplan_monthly_price, 0)) AS MonthlyPayment,
+      e.FullName,
+      a.AirtimeAllocation
+      FROM crdlive_employee_contract_details c
+      INNER JOIN employees e
+        ON c.employee_code COLLATE utf8mb4_general_ci = e.EmployeeCode COLLATE utf8mb4_general_ci
       INNER JOIN allocation a ON e.AllocationID = a.AllocationID
-      WHERE e.EmployeeCode = :employeeCode
+      WHERE e.EmployeeCode COLLATE utf8mb4_general_ci = :employeeCode COLLATE utf8mb4_general_ci
       AND e.EmploymentStatus = 'Active'
        ORDER BY c.createdAt DESC
       `;
@@ -168,13 +174,14 @@ exports.getStaffContractById = async (req, res) => {
       replacements: { employeeCode },
       type: sequelize.QueryTypes.SELECT,
     });
-    const query2 = `SELECT c.*, p.PackageName, e.FullName, a.AirtimeAllocation
-      FROM contracts c
-      INNER JOIN employees e ON c.EmployeeCode = e.EmployeeCode
-      INNER JOIN packages p ON c.PackageID = p.PackageID
+    const query2 = `SELECT
+      (COALESCE(c.device_monthly_price, 0) + COALESCE(c.serviceplan_monthly_price, 0)) AS MonthlyPayment
+      FROM crdlive_employee_contract_details c
+      INNER JOIN employees e
+        ON c.employee_code COLLATE utf8mb4_general_ci = e.EmployeeCode COLLATE utf8mb4_general_ci
       INNER JOIN allocation a ON e.AllocationID = a.AllocationID
-      WHERE e.EmployeeCode = :employeeCode
-      AND c.SubscriptionStatus != 'Expired'
+      WHERE e.EmployeeCode COLLATE utf8mb4_general_ci = :employeeCode COLLATE utf8mb4_general_ci
+      AND c.subscription_status = 'Active'
       AND e.EmploymentStatus = 'Active'
        ORDER BY c.createdAt DESC`;
 
@@ -182,7 +189,7 @@ exports.getStaffContractById = async (req, res) => {
       replacements: { employeeCode },
       type: sequelize.QueryTypes.SELECT,
     });
-    console.log("Here are my contracts: ", contracts);
+    console.log("Here are my contracts:", contracts, contracts2);
 
     if (contracts.length === 0) {
       const tempDate = await Staff.findOne({
