@@ -12,7 +12,7 @@ const { sendAdminEmail } = require("../middlewares/adminEmail");
 
 exports.getHandsets = async (req, res) => {
   try {
-    const handsets = await Handsets.findAll();
+    const handsets = await CdrLiveEmployeeHandsetDetail.findAll();
     console.log("My handset: ",handsets)
     res.status(200).json(handsets);
   } catch (error) {
@@ -407,7 +407,7 @@ exports.postHandset = async (req, res) => {
 }
 exports.getHandsetsOfStaff = async (req, res) => {
   try {
-    const staffHandsets = await Handsets.findAll({order: [['RequestDate', 'DESC']],});
+    const staffHandsets = await CdrLiveEmployeeHandsetDetail.findAll({ order: [["createdAt", "DESC"]] });
 
     res.status(200).json(staffHandsets);
   } catch (error) {

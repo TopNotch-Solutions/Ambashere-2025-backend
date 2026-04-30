@@ -9,6 +9,7 @@ const Allocation = require("../models/Allocation");
 const Contracts = require("../models/Contracts");
 const Packages = require("../models/Packages");
 const ContractData = require("../models/contractData");
+const CdrLiveEmployeeContractDetails = require("../models/crdliveEmployeeContractDetail");
 
 exports.getContracts = async (req, res) => {
   try {
@@ -132,16 +133,17 @@ exports.getStaffContracts = async (req, res) => {
   // console.log("Staff contract requets ")
   try {
     const staffContracts = await sequelize.query(
-      `SELECT c.*, e.FullName, e.EmploymentStatus, p.PackageName
-      FROM contracts c
-      INNER JOIN employees e ON c.EmployeeCode = e.EmployeeCode
-      INNER JOIN packages p ON c.PackageID = p.PackageID
+      `SELECT c.*, e.FullName, e.EmploymentStatus, c.package AS PackageName
+      FROM crdlive_employee_contract_details c
+      INNER JOIN employees e ON c.employee_code COLLATE utf8mb4_general_ci = e.EmployeeCode COLLATE utf8mb4_general_ci
       WHERE e.EmploymentStatus = 'Active'
       ORDER BY c.createdAt DESC`,
       { type: sequelize.QueryTypes.SELECT }
     );
+    console.log("staffContracts yes today:", staffContracts);
     res.status(200).json(staffContracts);
   } catch (error) {
+    console.error("Error fetching staff contracts:", error);  
     logger.error(error);
     res.status(500).json({
       message: "Failed to retrieve staff contracts.:",
@@ -974,15 +976,15 @@ exports.rejectContract = async (req, res) => {
 exports.getContractsCreatedPerMonth = async (req, res) => {
   try {
     //
-    const createdContracts = await Contract.findAll({
+    const createdContracts = await CdrLiveEmployeeContractDetails.findAll({
       attributes: [
-        [fn("DATE_FORMAT", col("ContractStartDate"), "%Y-%m"), "month"],
-        [fn("COUNT", col("ContractNumber")), "count"],
+        [fn("DATE_FORMAT", col("contract_start_date"), "%Y-%m"), "month"],
+        [fn("COUNT", col("id")), "count"],
       ],
-      group: [fn("DATE_FORMAT", col("ContractStartDate"), "%Y-%m")],
-      order: [[fn("DATE_FORMAT", col("ContractStartDate"), "%Y-%m"), "ASC"]],
+      group: [fn("DATE_FORMAT", col("contract_start_date"), "%Y-%m")],
+      order: [[fn("DATE_FORMAT", col("contract_start_date"), "%Y-%m"), "ASC"]],
     });
-
+    console.log("createdContracts", createdContracts);
     res.json(createdContracts);
   } catch (error) {
     console.error("Error fetching contracts created per month:", error);
@@ -992,20 +994,20 @@ exports.getContractsCreatedPerMonth = async (req, res) => {
 
 exports.getContractsEndedPerMonth = async (req, res) => {
   try {
-    const endedContracts = await Contract.findAll({
+    const endedContracts = await CdrLiveEmployeeContractDetails.findAll({
       attributes: [
-        [fn("DATE_FORMAT", col("ContractEndDate"), "%Y-%m"), "month"],
-        [fn("COUNT", col("ContractNumber")), "count"],
+        [fn("DATE_FORMAT", col("contract_end_date"), "%Y-%m"), "month"],
+        [fn("COUNT", col("id")), "count"],
       ],
       where: {
-        ContractEndDate: {
-          [Op.ne]: null, // Only where ContractEndDate is set
+        contract_end_date: {
+          [Op.ne]: null, // Only where contract_end_date is set
         },
       },
-      group: [fn("DATE_FORMAT", col("ContractEndDate"), "%Y-%m")],
-      order: [[fn("DATE_FORMAT", col("ContractEndDate"), "%Y-%m"), "ASC"]],
+      group: [fn("DATE_FORMAT", col("contract_end_date"), "%Y-%m")],
+      order: [[fn("DATE_FORMAT", col("contract_end_date"), "%Y-%m"), "ASC"]],
     });
-
+    console.log("endedContracts", endedContracts);
     res.json(endedContracts);
   } catch (error) {
     console.error("Error fetching contracts ended per month:", error);
