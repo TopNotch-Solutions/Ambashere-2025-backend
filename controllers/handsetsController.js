@@ -408,7 +408,7 @@ exports.postHandset = async (req, res) => {
 exports.getHandsetsOfStaff = async (req, res) => {
   try {
     const staffHandsets = await CdrLiveEmployeeHandsetDetail.findAll({ order: [["createdAt", "DESC"]] });
-
+    console.log("staffHandsets today:", staffHandsets);
     res.status(200).json(staffHandsets);
   } catch (error) {
     logger.error("Error retrieving handset details by staff:", error);

@@ -118,6 +118,7 @@ exports.login = async (req, res) => {
     }
 
     // 2. Database lookup
+    console.log("Here is the cn", userDN)
     const staff = await Staff.findOne({
       where: {
         Email: userDN.mail,
