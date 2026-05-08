@@ -29,7 +29,7 @@ exports.getHandsetsUser = async (req, res) => {
   try {
     const cdrHandsets = await CdrLiveEmployeeHandsetDetail.findAll({
       where: { employee_code: employeeCode },
-      order: [["createdAt", "DESC"]],
+      order: [["renewal_date", "DESC"]],
     });
     const handsets = cdrHandsets.map((item) => ({
       id: item.id,

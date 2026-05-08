@@ -169,7 +169,7 @@ exports.getStaffContractById = async (req, res) => {
       INNER JOIN allocation a ON e.AllocationID = a.AllocationID
       WHERE e.EmployeeCode COLLATE utf8mb4_general_ci = :employeeCode COLLATE utf8mb4_general_ci
       AND e.EmploymentStatus = 'Active'
-       ORDER BY c.createdAt DESC
+       ORDER BY c.contract_end_date DESC
       `;
 
     const contracts = await sequelize.query(query, {
@@ -185,7 +185,7 @@ exports.getStaffContractById = async (req, res) => {
       WHERE e.EmployeeCode COLLATE utf8mb4_general_ci = :employeeCode COLLATE utf8mb4_general_ci
       AND c.subscription_status = 'Active'
       AND e.EmploymentStatus = 'Active'
-       ORDER BY c.createdAt DESC`;
+       ORDER BY c.contract_end_date DESC`;
 
     const contracts2 = await sequelize.query(query2, {
       replacements: { employeeCode },
