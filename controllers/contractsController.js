@@ -222,14 +222,20 @@ exports.getStaffContractById = async (req, res) => {
         .status(200)
         .json({ status: 1, airtimeAllocation, sul, available });
     }
+
+    console.log("Here are my contracts permanent:", contracts,);
     const airtimeAllocation = contracts[0].AirtimeAllocation;
     const sul = (30 / 100) * airtimeAllocation;
     const available =
       (70 / 100) * airtimeAllocation -
-      contracts2.reduce((total, item) => total + (item.MonthlyPayment || 0), 0);
+      contracts
+        .filter((item) => item.subscription_status === "Active")
+        .reduce((total, item) => total + (parseFloat(item.device_monthly_price) || 0) + (parseFloat(item.serviceplan_monthly_price) || 0), 0);
+
+        console.log("Here are my available:", available, airtimeAllocation, sul, contracts);
     res
       .status(200)
-      .json({ airtimeAllocation, available, sul, available, contracts });
+      .json({ airtimeAllocation, available, sul, contracts });
   } catch (error) {
     logger.error(error);
     res.status(500).json({

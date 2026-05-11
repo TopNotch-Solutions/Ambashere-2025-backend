@@ -291,55 +291,55 @@ cron.schedule('* * * * *', async () => {
   }
 });
 
-cron.schedule('*/1 * * * *', async () => {
-  const transaction = await sequelize.transaction();
+// cron.schedule('*/1 * * * *', async () => {
+//   const transaction = await sequelize.transaction();
 
-  try {
-    const response = await fetch(process.env.DEVICE_COST_ENDPOINT, {
-      method: 'GET',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': process.env.AUTHORIZATION,
-        'X-Username': process.env.X_USERNAME,
-        'X-Password': process.env.X_PASSWORD
-      }
-    });
+//   try {
+//     const response = await fetch(process.env.DEVICE_COST_ENDPOINT, {
+//       method: 'GET',
+//       headers: {
+//         'Content-Type': 'application/json',
+//         'Authorization': process.env.AUTHORIZATION,
+//         'X-Username': process.env.X_USERNAME,
+//         'X-Password': process.env.X_PASSWORD
+//       }
+//     });
 
-    if (!response.ok) {
-      throw new Error(`HTTP error! Status: ${response.status}`);
-    }
+//     if (!response.ok) {
+//       throw new Error(`HTTP error! Status: ${response.status}`);
+//     }
 
-    const deviceCosts = await response.json();
+//     const deviceCosts = await response.json();
 
-    if (!Array.isArray(deviceCosts) || deviceCosts.length === 0) {
-      throw new Error("Invalid or empty device cost response");
-    }
+//     if (!Array.isArray(deviceCosts) || deviceCosts.length === 0) {
+//       throw new Error("Invalid or empty device cost response");
+//     }
 
-    await CdrLiveDeviceCost.destroy({
-      where: {},
-      truncate: true,
-      transaction
-    });
+//     await CdrLiveDeviceCost.destroy({
+//       where: {},
+//       truncate: true,
+//       transaction
+//     });
 
-    const formattedData = deviceCosts.map(device => ({
-      device_name: device.device_name,
-      amount: parseFloat(device.amount),
-      device_group: device.device_group,
-      staff_discounted_amount: parseFloat(device.staff_discounted_amount)
-    }));
+//     const formattedData = deviceCosts.map(device => ({
+//       device_name: device.device_name,
+//       amount: parseFloat(device.amount),
+//       device_group: device.device_group,
+//       staff_discounted_amount: parseFloat(device.staff_discounted_amount)
+//     }));
 
-    await CdrLiveDeviceCost.bulkCreate(formattedData, { transaction });
+//     await CdrLiveDeviceCost.bulkCreate(formattedData, { transaction });
 
-    await transaction.commit();
+//     await transaction.commit();
 
-    console.log("Device costs replaced successfully");
+//     console.log("Device costs replaced successfully");
 
-  } catch (error) {
-    await transaction.rollback();
+//   } catch (error) {
+//     await transaction.rollback();
 
-    console.error("Transaction rolled back:", error.message);
-  }
-});
+//     console.error("Transaction rolled back:", error.message);
+//   }
+// });
 
 // cron.schedule("*/1 * * * *", async () => {
 //   const transaction = await sequelize.transaction();
