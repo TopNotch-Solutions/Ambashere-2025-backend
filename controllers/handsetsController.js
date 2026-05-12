@@ -155,41 +155,9 @@ exports.getHandsetsByStaff = async (req, res) => {
   try {
     const employeeCode = req.params.employeeCode;
 
-    const staff = await Staff.findOne({ where: { EmployeeCode: employeeCode } });
-
-    if (!staff) {
-      return res.status(404).json({ message: "Staff not found" });
-    }
-
-    const [allocationResult] = await sequelize.query(
-      `SELECT HandsetAllocation FROM allocation WHERE AllocationID = ? LIMIT 1`,
-      { replacements: [staff.AllocationID] }
-    );
-
-    const allocation = allocationResult[0];
-
-    if (!allocation) {
-      return res.status(404).json({ message: "Allocation not found" });
-    }
-
-    // ✅ Validate and parse employmentStartDate
-    const employmentStartRaw = staff.EmploymentStartDate;
-    if (!employmentStartRaw || isNaN(new Date(employmentStartRaw))) {
-      return res.status(400).json({
-        message: "Invalid or missing employment start date for staff",
-      });
-    }
-
-    const employmentStartDate = new Date(employmentStartRaw);
-    const twoYearsLater = new Date(employmentStartDate);
-    twoYearsLater.setFullYear(twoYearsLater.getFullYear() + 2);
-
-    const formattedStartDate = employmentStartDate.toISOString().split("T")[0];
-    const formattedTwoYearsLater = twoYearsLater.toISOString().split("T")[0];
-
     const cdrHandsets = await CdrLiveEmployeeHandsetDetail.findAll({
       where: { employee_code: employeeCode },
-      order: [["createdAt", "DESC"]],
+      order: [["renewal_date", "DESC"]],
     });
 
     const handsets = cdrHandsets.map((item) => ({
@@ -204,15 +172,8 @@ exports.getHandsetsByStaff = async (req, res) => {
       Status: item.status === "active" ? "Active" : "Completed",
       RequestDate: item.createdAt,
     }));
-    console.log("My handsets new: ", handsets);
 
-    return res.json({
-      status: handsets.length === 0 ? 1 : 2,
-      handsets,
-      handsetAllocation: allocation.HandsetAllocation,
-      employmentStartDate: formattedStartDate,
-      twoYearsLater: formattedTwoYearsLater,
-    });
+    return res.json({ handsets });
 
   } catch (error) {
     logger.error("Error retrieving device details by staff:", error);
