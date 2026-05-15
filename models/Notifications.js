@@ -42,7 +42,12 @@ const Notifications = sequelize.define(
     RecipientEmployeeCode: {
       type: DataTypes.STRING,
       allowNull: false,
-    }
+    },
+    EmailSent: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false,
+    },
   },
   {
     timestamps: false,

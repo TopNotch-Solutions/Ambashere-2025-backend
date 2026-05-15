@@ -223,6 +223,11 @@ exports.updateStaff = async (req, res) => {
         "EmploymentCategory",
         "EmploymentStatus",
         "Department",
+        "Email",
+        "EmployeeCode",
+        "RoleID",
+        "AllocationID",
+        "Gender"
       ],
     });
 

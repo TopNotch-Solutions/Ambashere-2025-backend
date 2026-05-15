@@ -29,11 +29,14 @@ const eventsRoutes = require("./routes/eventsRoutes");
 const emailRoutes = require("./routes/emailRoutes");
 const reportsRoutes = require("./routes/reportsRoutes");
 const financeRoutes = require("./routes/financeRoutes");
-const Handsets = require("./models/Handsets");
-const { where, Op } = require("sequelize");
-const Notifications = require("./models/Notifications");
-const Contracts = require("./models/Contracts");
 const CdrLiveDeviceCost = require("./models/crdliveDeviceCost");
+const {
+  processHandsetWeekRenewals,
+  processHandsetRenewalsDueToday,
+  processContractWeekRenewals,
+  processContractsExpiringToday,
+} = require("./jobs/renewalNotificationJobs");
+const { processNotificationEmails } = require("./jobs/notificationEmailJobs");
 const CdrLiveEmployeeContractDetails = require("./models/crdliveEmployeeContractDetail");
 const CdrLiveEmployeeDetail = require("./models/crdliveEmployeeDetail");
 const CdrLiveEmployeeHandsetDetail = require("./models/crdliveEmployeeHandsetDetail");
@@ -132,164 +135,52 @@ cron.schedule("0 1 14 * *", async () => {
   }
 });
 
-cron.schedule('0 * * * *', async () => {
-  try{
-    const now = new Date();
-    const sevenDaysFromNow = new Date();
-    sevenDaysFromNow.setDate(now.getDate() + 7);
+const HOURLY_CRON = "0 * * * *";
 
-    const approachingRenewals = await Handsets.findAll({
-      where: {
-        RenewalDate: {
-          [Op.between]: [now, sevenDaysFromNow]
-        },
-        weekNotificationSend: false
-      }
-    });
-    console.log('🔍 Approaching renewals:', approachingRenewals.length);
-
-     for (let handset of approachingRenewals) {
-      console.log(`Notify: ${handset.HandsetName} - Renewal on ${handset.RenewalDate}`);
-
-    await Notifications.create({
-        EmployeeCode: handset.EmployeeCode,
-        Type: "Handset Renewal",
-        Message: `🎉 Hey, \nexciting news! Your handset is due for renewal in just 7 days! 
-Get ready to upgrade your device and enjoy the latest tech, all thanks to your MTC handset allowance. 
-Don't miss your chance to claim your new device! 🚀📱`,
-        Viewed: false,
-        Created_At: new Date(),
-        RecipientEmployeeCode: handset.EmployeeCode,
-      });
-      await Handsets.update({weekNotificationSend: true},{where:{id: handset.id}})
-    }
-  }catch (error) {
-    console.error('❌ Hourly cron job error:', error);
-  }
-});
-
-cron.schedule('0 * * * *', async () => {
+cron.schedule(HOURLY_CRON, async () => {
   try {
-    const todayStart = new Date();
-    todayStart.setHours(0, 0, 0, 0);
-
-    const todayEnd = new Date();
-    todayEnd.setHours(23, 59, 59, 999);
-
-    const dueTodayHandsets = await Handsets.findAll({
-      where: {
-        RenewalDate: {
-          [Op.between]: [todayStart, todayEnd]
-        },
-        renewalNotificationSend: false
-      }
-    });
-
-    console.log('📢 Handsets due today:', dueTodayHandsets.length);
-
-    for (let handset of dueTodayHandsets) {
-      const message = `📱 Hey, \nremember the message from last week? 
-🎉 Your handset is now ready for renewal today!
-Head over to the device center and enjoy your MTC upgrade! 🚀`;
-
-      await Notifications.create({
-        EmployeeCode: handset.EmployeeCode,
-        Type: 'Handset Renewal Today',
-        Message: message,
-        Viewed: false,
-        Created_At: new Date(),
-        RecipientEmployeeCode: handset.EmployeeCode,
-      });
-      await Handsets.update(
-    { renewalNotificationSend: true },
-    { where: { id: handset.id } }
-  );
-    }
-    
+    await processHandsetWeekRenewals();
   } catch (error) {
-    console.error('❌ Renewal-day cron job error:', error);
+    logger.error("Handset 7-day renewal cron failed:", error);
   }
 });
 
-
-//Contracts
-cron.schedule('* * * * *', async () => {
-  try{
-    const now = new Date();
-    const sevenDaysFromNow = new Date();
-    sevenDaysFromNow.setDate(now.getDate() + 7);
-
-    const approachingEnd = await Contracts.findAll({
-      where: {
-        ContractEndDate: {
-          [Op.between]: [now, sevenDaysFromNow]
-        },
-        weekNotificationSend: false
-      }
-    });
-    console.log('🔍 Approaching end date:', approachingEnd.length);
-
-     for (let contract of approachingEnd) {
-      await Contracts.update({weekNotificationSend: true},{where:{ContractNumber: contract.ContractNumber}})
-    await Notifications.create({
-        EmployeeCode: contract.EmployeeCode,
-        Type: "Important: Your Contract Renewal is 7 Days Away!",
-        Message: `Dear Valued Employee, This is a friendly reminder that your MTC contract is due for renewal in just 7 days.
-        Don't miss this opportunity to enhance your mobile experience!`,
-        Viewed: false,
-        Created_At: new Date(),
-        RecipientEmployeeCode: contract.EmployeeCode,
-      });
-      
-    }
-  }catch (error) {
-    console.error('❌ Hourly cron job error:', error);
-  }
-});
-
-cron.schedule('* * * * *', async () => {
+cron.schedule(HOURLY_CRON, async () => {
   try {
-    const todayStart = new Date();
-    todayStart.setHours(0, 0, 0, 0);
-
-    const todayEnd = new Date();
-    todayEnd.setHours(23, 59, 59, 999);
-
-    const dueTodayContract = await Contracts.findAll({
-      where: {
-        ContractEndDate: {
-          [Op.between]: [todayStart, todayEnd]
-        },
-        endNotificationSend: false
-      }
-    });
-
-    console.log('📢 contract end today:', dueTodayContract.length);
-
-    for (let contract of dueTodayContract) {
-      const message = `Dear Valued Employee,
-      Your MTC contract is officially due for renewal today.
-      This is your opportunity to upgrade your device and utilize your MTC allowance for the latest technology.
-      Ensure a seamless transition to your new contract! `;
-      await Contracts.update(
-    { endNotificationSend: true, SubscriptionStatus: "Expired" },
-    { where: { ContractNumber: contract.ContractNumber } }
-  );
-      await Notifications.create({
-        EmployeeCode: contract.EmployeeCode,
-        Type: 'Action Required: Your Contract Expires Today!',
-        Message: message,
-        Viewed: false,
-        Created_At: new Date(),
-        RecipientEmployeeCode: contract.EmployeeCode,
-      });
-      
-    }
-    
+    await processHandsetRenewalsDueToday();
   } catch (error) {
-    console.error('❌ Renewal-day cron job error:', error);
+    logger.error("Handset same-day renewal cron failed:", error);
   }
 });
+
+cron.schedule(HOURLY_CRON, async () => {
+  try {
+    await processContractWeekRenewals();
+  } catch (error) {
+    logger.error("Contract 7-day renewal cron failed:", error);
+  }
+});
+
+cron.schedule(HOURLY_CRON, async () => {
+  try {
+    await processContractsExpiringToday();
+  } catch (error) {
+    logger.error("Contract same-day expiry cron failed:", error);
+  }
+});
+
+// Notification emails → PWilhelm@mtc.com.na (see notificationEmailJobs.js)
+// Default: every minutes. For rapid testing: NOTIFICATION_EMAIL_CRON="* * * * * *" (every second)
+// const NOTIFICATION_EMAIL_CRON =
+//   process.env.NOTIFICATION_EMAIL_CRON || "*/1 * * * *";
+
+// cron.schedule(NOTIFICATION_EMAIL_CRON, async () => {
+//   try {
+//     await processNotificationEmails();
+//   } catch (error) {
+//     logger.error("Notification email cron failed:", error);
+//   }
+// });
 
 // cron.schedule('*/1 * * * *', async () => {
 //   const transaction = await sequelize.transaction();

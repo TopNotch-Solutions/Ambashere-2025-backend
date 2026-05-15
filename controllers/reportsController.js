@@ -1,6 +1,19 @@
 const sequelize = require("../config/database");
 const { Op, fn, col, where, QueryTypes } = require("sequelize");
 const logger = require("../middlewares/errorLogger");
+const CdrLiveEmployeeContractDetails = require("../models/crdliveEmployeeContractDetail");
+const CdrLiveEmployeeHandsetDetail = require("../models/crdliveEmployeeHandsetDetail");
+
+const CONTRACTS_TABLE = CdrLiveEmployeeContractDetails.tableName;
+const HANDSETS_TABLE = CdrLiveEmployeeHandsetDetail.tableName;
+const EMPLOYEE_CONTRACT_JOIN =
+  "c.employee_code COLLATE utf8mb4_general_ci = e.EmployeeCode COLLATE utf8mb4_general_ci";
+const EMPLOYEE_HANDSET_JOIN =
+  "h.employee_code COLLATE utf8mb4_general_ci = e.EmployeeCode COLLATE utf8mb4_general_ci";
+const ACTIVE_CONTRACT = "c.subscription_status = 'Active'";
+const ACTIVE_HANDSET = "h.status = 'active'";
+const MONTHLY_PAYMENT =
+  "(COALESCE(c.device_monthly_price, 0) + COALESCE(c.serviceplan_monthly_price, 0))";
 
 // Employee Reports
 exports.getEmployeeDemographics = async (req, res) => {
@@ -113,50 +126,50 @@ exports.getCostAnalysisReport = async (req, res) => {
   try {
     const monthlyCosts = await sequelize.query(`
       SELECT 
-        DATE_FORMAT(c.ContractStartDate, '%Y-%m') as month,
-        SUM(c.MonthlyPayment) as totalMonthlyCost,
-        COUNT(c.ContractNumber) as activeContracts,
-        AVG(c.MonthlyPayment) as avgMonthlyPayment
-      FROM contracts c
-      INNER JOIN employees e ON c.EmployeeCode = e.EmployeeCode
+        DATE_FORMAT(c.contract_start_date, '%Y-%m') as month,
+        SUM(${MONTHLY_PAYMENT}) as totalMonthlyCost,
+        COUNT(c.id) as activeContracts,
+        AVG(${MONTHLY_PAYMENT}) as avgMonthlyPayment
+      FROM ${CONTRACTS_TABLE} c
+      INNER JOIN employees e ON ${EMPLOYEE_CONTRACT_JOIN}
       WHERE e.EmploymentStatus = 'Active' 
-        AND c.ApprovalStatus = 'Approved'
-        AND c.ContractStartDate >= DATE_SUB(NOW(), INTERVAL 12 MONTH)
-      GROUP BY DATE_FORMAT(c.ContractStartDate, '%Y-%m')
+        AND ${ACTIVE_CONTRACT}
+        AND c.contract_start_date >= DATE_SUB(NOW(), INTERVAL 12 MONTH)
+      GROUP BY DATE_FORMAT(c.contract_start_date, '%Y-%m')
       ORDER BY month ASC
     `, { type: QueryTypes.SELECT });
 
     const costByDepartment = await sequelize.query(`
       SELECT 
         e.Department,
-        SUM(c.MonthlyPayment) as totalCost,
-        COUNT(c.ContractNumber) as contractCount,
-        AVG(c.MonthlyPayment) as avgCostPerContract
-      FROM contracts c
-      INNER JOIN employees e ON c.EmployeeCode = e.EmployeeCode
-      WHERE e.EmploymentStatus = 'Active' AND c.ApprovalStatus = 'Approved'
+        SUM(${MONTHLY_PAYMENT}) as totalCost,
+        COUNT(c.id) as contractCount,
+        AVG(${MONTHLY_PAYMENT}) as avgCostPerContract
+      FROM ${CONTRACTS_TABLE} c
+      INNER JOIN employees e ON ${EMPLOYEE_CONTRACT_JOIN}
+      WHERE e.EmploymentStatus = 'Active' AND ${ACTIVE_CONTRACT}
       GROUP BY e.Department
       ORDER BY totalCost DESC
     `, { type: QueryTypes.SELECT });
 
     const deviceCosts = await sequelize.query(`
       SELECT 
-        SUM(c.DevicePrice) as totalDeviceCost,
-        AVG(c.DevicePrice) as avgDeviceCost,
-        COUNT(CASE WHEN c.DevicePrice > 0 THEN 1 END) as devicesAllocated
-      FROM contracts c
-      INNER JOIN employees e ON c.EmployeeCode = e.EmployeeCode
-      WHERE e.EmploymentStatus = 'Active' AND c.ApprovalStatus = 'Approved'
+        SUM(c.device_initial_cost) as totalDeviceCost,
+        AVG(c.device_initial_cost) as avgDeviceCost,
+        COUNT(CASE WHEN c.device_initial_cost > 0 THEN 1 END) as devicesAllocated
+      FROM ${CONTRACTS_TABLE} c
+      INNER JOIN employees e ON ${EMPLOYEE_CONTRACT_JOIN}
+      WHERE e.EmploymentStatus = 'Active' AND ${ACTIVE_CONTRACT}
     `, { type: QueryTypes.SELECT });
 
     const upfrontPayments = await sequelize.query(`
       SELECT 
-        SUM(c.UpfrontPayment) as totalUpfrontPayments,
-        AVG(c.UpfrontPayment) as avgUpfrontPayment,
-        COUNT(CASE WHEN c.UpfrontPayment > 0 THEN 1 END) as upfrontPaymentCount
-      FROM contracts c
-      INNER JOIN employees e ON c.EmployeeCode = e.EmployeeCode
-      WHERE e.EmploymentStatus = 'Active' AND c.ApprovalStatus = 'Approved'
+        SUM(c.device_upfront_payment) as totalUpfrontPayments,
+        AVG(c.device_upfront_payment) as avgUpfrontPayment,
+        COUNT(CASE WHEN c.device_upfront_payment > 0 THEN 1 END) as upfrontPaymentCount
+      FROM ${CONTRACTS_TABLE} c
+      INNER JOIN employees e ON ${EMPLOYEE_CONTRACT_JOIN}
+      WHERE e.EmploymentStatus = 'Active' AND ${ACTIVE_CONTRACT}
     `, { type: QueryTypes.SELECT });
 
     res.json({
@@ -178,13 +191,13 @@ exports.getBudgetReport = async (req, res) => {
 
     const currentMonthSpending = await sequelize.query(`
       SELECT 
-        SUM(c.MonthlyPayment) as totalSpending,
-        COUNT(c.ContractNumber) as activeContracts
-      FROM contracts c
-      INNER JOIN employees e ON c.EmployeeCode = e.EmployeeCode
+        SUM(${MONTHLY_PAYMENT}) as totalSpending,
+        COUNT(c.id) as activeContracts
+      FROM ${CONTRACTS_TABLE} c
+      INNER JOIN employees e ON ${EMPLOYEE_CONTRACT_JOIN}
       WHERE e.EmploymentStatus = 'Active' 
-        AND c.ApprovalStatus = 'Approved'
-        AND DATE_FORMAT(c.ContractStartDate, '%Y-%m') = :currentMonth
+        AND ${ACTIVE_CONTRACT}
+        AND DATE_FORMAT(c.contract_start_date, '%Y-%m') = :currentMonth
     `, { 
       replacements: { currentMonth },
       type: QueryTypes.SELECT 
@@ -192,15 +205,15 @@ exports.getBudgetReport = async (req, res) => {
 
     const monthlyTrends = await sequelize.query(`
       SELECT 
-        DATE_FORMAT(c.ContractStartDate, '%Y-%m') as month,
-        SUM(c.MonthlyPayment) as monthlySpending,
-        COUNT(c.ContractNumber) as newContracts
-      FROM contracts c
-      INNER JOIN employees e ON c.EmployeeCode = e.EmployeeCode
+        DATE_FORMAT(c.contract_start_date, '%Y-%m') as month,
+        SUM(${MONTHLY_PAYMENT}) as monthlySpending,
+        COUNT(c.id) as newContracts
+      FROM ${CONTRACTS_TABLE} c
+      INNER JOIN employees e ON ${EMPLOYEE_CONTRACT_JOIN}
       WHERE e.EmploymentStatus = 'Active' 
-        AND c.ApprovalStatus = 'Approved'
-        AND c.ContractStartDate >= DATE_SUB(NOW(), INTERVAL 6 MONTH)
-      GROUP BY DATE_FORMAT(c.ContractStartDate, '%Y-%m')
+        AND ${ACTIVE_CONTRACT}
+        AND c.contract_start_date >= DATE_SUB(NOW(), INTERVAL 6 MONTH)
+      GROUP BY DATE_FORMAT(c.contract_start_date, '%Y-%m')
       ORDER BY month ASC
     `, { type: QueryTypes.SELECT });
 
@@ -219,42 +232,42 @@ exports.getDeviceAllocationReport = async (req, res) => {
   try {
     const deviceDistribution = await sequelize.query(`
       SELECT 
-        c.DeviceName,
+        COALESCE(h.description, h.part_no) as DeviceName,
         COUNT(*) as allocationCount,
-        SUM(c.DevicePrice) as totalValue,
-        AVG(c.DevicePrice) as avgPrice
-      FROM contracts c
-      INNER JOIN employees e ON c.EmployeeCode = e.EmployeeCode
-      WHERE e.EmploymentStatus = 'Active' 
-        AND c.ApprovalStatus = 'Approved'
-        AND c.DeviceName IS NOT NULL
-      GROUP BY c.DeviceName
+        SUM(h.cost) as totalValue,
+        AVG(h.cost) as avgPrice
+      FROM ${HANDSETS_TABLE} h
+      INNER JOIN employees e ON ${EMPLOYEE_HANDSET_JOIN}
+      WHERE e.EmploymentStatus = 'Active'
+        AND (h.description IS NOT NULL OR h.part_no IS NOT NULL)
+      GROUP BY COALESCE(h.description, h.part_no)
       ORDER BY allocationCount DESC
     `, { type: QueryTypes.SELECT });
 
     const allocationTrends = await sequelize.query(`
       SELECT 
-        DATE_FORMAT(c.ContractStartDate, '%Y-%m') as month,
-        COUNT(CASE WHEN c.DeviceName IS NOT NULL THEN 1 END) as deviceAllocations,
+        DATE_FORMAT(h.collected_date, '%Y-%m') as month,
+        COUNT(*) as deviceAllocations,
         COUNT(*) as totalContracts
-      FROM contracts c
-      INNER JOIN employees e ON c.EmployeeCode = e.EmployeeCode
-      WHERE e.EmploymentStatus = 'Active' 
-        AND c.ApprovalStatus = 'Approved'
-        AND c.ContractStartDate >= DATE_SUB(NOW(), INTERVAL 12 MONTH)
-      GROUP BY DATE_FORMAT(c.ContractStartDate, '%Y-%m')
+      FROM ${HANDSETS_TABLE} h
+      INNER JOIN employees e ON ${EMPLOYEE_HANDSET_JOIN}
+      WHERE e.EmploymentStatus = 'Active'
+        AND h.collected_date >= DATE_SUB(NOW(), INTERVAL 12 MONTH)
+      GROUP BY DATE_FORMAT(h.collected_date, '%Y-%m')
       ORDER BY month ASC
     `, { type: QueryTypes.SELECT });
 
     const departmentDeviceUsage = await sequelize.query(`
       SELECT 
         e.Department,
-        COUNT(CASE WHEN c.DeviceName IS NOT NULL THEN 1 END) as deviceCount,
-        COUNT(*) as totalContracts,
-        ROUND(COUNT(CASE WHEN c.DeviceName IS NOT NULL THEN 1 END) * 100.0 / COUNT(*), 2) as deviceUsagePercentage
-      FROM contracts c
-      INNER JOIN employees e ON c.EmployeeCode = e.EmployeeCode
-      WHERE e.EmploymentStatus = 'Active' AND c.ApprovalStatus = 'Approved'
+        COUNT(DISTINCT h.id) as deviceCount,
+        COUNT(DISTINCT c.id) as totalContracts,
+        ROUND(COUNT(DISTINCT h.id) * 100.0 / NULLIF(COUNT(DISTINCT c.id), 0), 2) as deviceUsagePercentage
+      FROM employees e
+      LEFT JOIN ${CONTRACTS_TABLE} c ON e.EmployeeCode COLLATE utf8mb4_general_ci = c.employee_code COLLATE utf8mb4_general_ci
+        AND ${ACTIVE_CONTRACT}
+      LEFT JOIN ${HANDSETS_TABLE} h ON e.EmployeeCode COLLATE utf8mb4_general_ci = h.employee_code COLLATE utf8mb4_general_ci
+      WHERE e.EmploymentStatus = 'Active'
       GROUP BY e.Department
       ORDER BY deviceCount DESC
     `, { type: QueryTypes.SELECT });
@@ -278,12 +291,12 @@ exports.getPackageUtilizationReport = async (req, res) => {
         p.MonthlyPrice,
         p.PaymentPeriod,
         p.IsActive,
-        COUNT(c.ContractNumber) as usageCount,
-        SUM(c.MonthlyPayment) as totalRevenue,
-        AVG(c.MonthlyPayment) as avgRevenue
+        COUNT(c.id) as usageCount,
+        SUM(${MONTHLY_PAYMENT}) as totalRevenue,
+        AVG(${MONTHLY_PAYMENT}) as avgRevenue
       FROM packages p
-      LEFT JOIN contracts c ON p.PackageID = c.PackageID 
-        AND c.ApprovalStatus = 'Approved'
+      LEFT JOIN ${CONTRACTS_TABLE} c ON p.PackageName = c.package
+        AND ${ACTIVE_CONTRACT}
       GROUP BY p.PackageID, p.PackageName, p.MonthlyPrice, p.PaymentPeriod, p.IsActive
       ORDER BY usageCount DESC
     `, { type: QueryTypes.SELECT });
@@ -292,24 +305,24 @@ exports.getPackageUtilizationReport = async (req, res) => {
       SELECT 
         CASE WHEN p.IsActive = 1 THEN 'Active' ELSE 'Inactive' END as status,
         COUNT(p.PackageID) as packageCount,
-        COUNT(c.ContractNumber) as usageCount
+        COUNT(c.id) as usageCount
       FROM packages p
-      LEFT JOIN contracts c ON p.PackageID = c.PackageID AND c.ApprovalStatus = 'Approved'
+      LEFT JOIN ${CONTRACTS_TABLE} c ON p.PackageName = c.package AND ${ACTIVE_CONTRACT}
       GROUP BY p.IsActive
     `, { type: QueryTypes.SELECT });
 
     const monthlyPackageUsage = await sequelize.query(`
       SELECT 
-        DATE_FORMAT(c.ContractStartDate, '%Y-%m') as month,
+        DATE_FORMAT(c.contract_start_date, '%Y-%m') as month,
         p.PackageName,
-        COUNT(c.ContractNumber) as usageCount
-      FROM contracts c
-      INNER JOIN packages p ON c.PackageID = p.PackageID
-      INNER JOIN employees e ON c.EmployeeCode = e.EmployeeCode
+        COUNT(c.id) as usageCount
+      FROM ${CONTRACTS_TABLE} c
+      INNER JOIN packages p ON c.package = p.PackageName
+      INNER JOIN employees e ON ${EMPLOYEE_CONTRACT_JOIN}
       WHERE e.EmploymentStatus = 'Active' 
-        AND c.ApprovalStatus = 'Approved'
-        AND c.ContractStartDate >= DATE_SUB(NOW(), INTERVAL 6 MONTH)
-      GROUP BY DATE_FORMAT(c.ContractStartDate, '%Y-%m'), p.PackageID, p.PackageName
+        AND ${ACTIVE_CONTRACT}
+        AND c.contract_start_date >= DATE_SUB(NOW(), INTERVAL 6 MONTH)
+      GROUP BY DATE_FORMAT(c.contract_start_date, '%Y-%m'), p.PackageID, p.PackageName
       ORDER BY month ASC, usageCount DESC
     `, { type: QueryTypes.SELECT });
 
@@ -330,11 +343,11 @@ exports.getBenefitUtilizationReport = async (req, res) => {
     const overallUtilization = await sequelize.query(`
       SELECT 
         COUNT(DISTINCT e.EmployeeCode) as totalEmployees,
-        COUNT(DISTINCT c.EmployeeCode) as employeesWithBenefits,
-        ROUND(COUNT(DISTINCT c.EmployeeCode) * 100.0 / COUNT(DISTINCT e.EmployeeCode), 2) as utilizationPercentage
+        COUNT(DISTINCT c.employee_code) as employeesWithBenefits,
+        ROUND(COUNT(DISTINCT c.employee_code) * 100.0 / COUNT(DISTINCT e.EmployeeCode), 2) as utilizationPercentage
       FROM employees e
-      LEFT JOIN contracts c ON e.EmployeeCode = c.EmployeeCode 
-        AND c.ApprovalStatus = 'Approved'
+      LEFT JOIN ${CONTRACTS_TABLE} c ON e.EmployeeCode COLLATE utf8mb4_general_ci = c.employee_code COLLATE utf8mb4_general_ci
+        AND ${ACTIVE_CONTRACT}
       WHERE e.EmploymentStatus = 'Active'
     `, { type: QueryTypes.SELECT });
 
@@ -342,11 +355,11 @@ exports.getBenefitUtilizationReport = async (req, res) => {
       SELECT 
         e.Department,
         COUNT(DISTINCT e.EmployeeCode) as totalEmployees,
-        COUNT(DISTINCT c.EmployeeCode) as employeesWithBenefits,
-        ROUND(COUNT(DISTINCT c.EmployeeCode) * 100.0 / COUNT(DISTINCT e.EmployeeCode), 2) as utilizationPercentage
+        COUNT(DISTINCT c.employee_code) as employeesWithBenefits,
+        ROUND(COUNT(DISTINCT c.employee_code) * 100.0 / COUNT(DISTINCT e.EmployeeCode), 2) as utilizationPercentage
       FROM employees e
-      LEFT JOIN contracts c ON e.EmployeeCode = c.EmployeeCode 
-        AND c.ApprovalStatus = 'Approved'
+      LEFT JOIN ${CONTRACTS_TABLE} c ON e.EmployeeCode COLLATE utf8mb4_general_ci = c.employee_code COLLATE utf8mb4_general_ci
+        AND ${ACTIVE_CONTRACT}
       WHERE e.EmploymentStatus = 'Active'
       GROUP BY e.Department
       ORDER BY utilizationPercentage DESC
@@ -354,14 +367,14 @@ exports.getBenefitUtilizationReport = async (req, res) => {
 
     const peakUsagePeriods = await sequelize.query(`
       SELECT 
-        DATE_FORMAT(c.ContractStartDate, '%Y-%m') as month,
-        COUNT(c.ContractNumber) as newAllocations
-      FROM contracts c
-      INNER JOIN employees e ON c.EmployeeCode = e.EmployeeCode
+        DATE_FORMAT(c.contract_start_date, '%Y-%m') as month,
+        COUNT(c.id) as newAllocations
+      FROM ${CONTRACTS_TABLE} c
+      INNER JOIN employees e ON ${EMPLOYEE_CONTRACT_JOIN}
       WHERE e.EmploymentStatus = 'Active' 
-        AND c.ApprovalStatus = 'Approved'
-        AND c.ContractStartDate >= DATE_SUB(NOW(), INTERVAL 12 MONTH)
-      GROUP BY DATE_FORMAT(c.ContractStartDate, '%Y-%m')
+        AND ${ACTIVE_CONTRACT}
+        AND c.contract_start_date >= DATE_SUB(NOW(), INTERVAL 12 MONTH)
+      GROUP BY DATE_FORMAT(c.contract_start_date, '%Y-%m')
       ORDER BY newAllocations DESC
     `, { type: QueryTypes.SELECT });
 
@@ -380,44 +393,44 @@ exports.getTrendAnalysisReport = async (req, res) => {
   try {
     const monthlyTrends = await sequelize.query(`
       SELECT 
-        DATE_FORMAT(c.ContractStartDate, '%Y-%m') as month,
-        COUNT(c.ContractNumber) as newContracts,
-        SUM(c.MonthlyPayment) as monthlyRevenue,
-        AVG(c.MonthlyPayment) as avgMonthlyPayment
-      FROM contracts c
-      INNER JOIN employees e ON c.EmployeeCode = e.EmployeeCode
+        DATE_FORMAT(c.contract_start_date, '%Y-%m') as month,
+        COUNT(c.id) as newContracts,
+        SUM(${MONTHLY_PAYMENT}) as monthlyRevenue,
+        AVG(${MONTHLY_PAYMENT}) as avgMonthlyPayment
+      FROM ${CONTRACTS_TABLE} c
+      INNER JOIN employees e ON ${EMPLOYEE_CONTRACT_JOIN}
       WHERE e.EmploymentStatus = 'Active' 
-        AND c.ApprovalStatus = 'Approved'
-        AND c.ContractStartDate >= DATE_SUB(NOW(), INTERVAL 12 MONTH)
-      GROUP BY DATE_FORMAT(c.ContractStartDate, '%Y-%m')
+        AND ${ACTIVE_CONTRACT}
+        AND c.contract_start_date >= DATE_SUB(NOW(), INTERVAL 12 MONTH)
+      GROUP BY DATE_FORMAT(c.contract_start_date, '%Y-%m')
       ORDER BY month ASC
     `, { type: QueryTypes.SELECT });
 
     const yearlyComparison = await sequelize.query(`
       SELECT 
-        YEAR(c.ContractStartDate) as year,
-        COUNT(c.ContractNumber) as totalContracts,
-        SUM(c.MonthlyPayment) as totalRevenue,
-        AVG(c.MonthlyPayment) as avgMonthlyPayment
-      FROM contracts c
-      INNER JOIN employees e ON c.EmployeeCode = e.EmployeeCode
-      WHERE e.EmploymentStatus = 'Active' AND c.ApprovalStatus = 'Approved'
-      GROUP BY YEAR(c.ContractStartDate)
+        YEAR(c.contract_start_date) as year,
+        COUNT(c.id) as totalContracts,
+        SUM(${MONTHLY_PAYMENT}) as totalRevenue,
+        AVG(${MONTHLY_PAYMENT}) as avgMonthlyPayment
+      FROM ${CONTRACTS_TABLE} c
+      INNER JOIN employees e ON ${EMPLOYEE_CONTRACT_JOIN}
+      WHERE e.EmploymentStatus = 'Active' AND ${ACTIVE_CONTRACT}
+      GROUP BY YEAR(c.contract_start_date)
       ORDER BY year DESC
     `, { type: QueryTypes.SELECT });
 
     const seasonalPatterns = await sequelize.query(`
       SELECT 
-        MONTH(c.ContractStartDate) as month,
-        MONTHNAME(c.ContractStartDate) as monthName,
-        COUNT(c.ContractNumber) as contractCount,
-        AVG(c.MonthlyPayment) as avgPayment
-      FROM contracts c
-      INNER JOIN employees e ON c.EmployeeCode = e.EmployeeCode
+        MONTH(c.contract_start_date) as month,
+        MONTHNAME(c.contract_start_date) as monthName,
+        COUNT(c.id) as contractCount,
+        AVG(${MONTHLY_PAYMENT}) as avgPayment
+      FROM ${CONTRACTS_TABLE} c
+      INNER JOIN employees e ON ${EMPLOYEE_CONTRACT_JOIN}
       WHERE e.EmploymentStatus = 'Active' 
-        AND c.ApprovalStatus = 'Approved'
-        AND c.ContractStartDate >= DATE_SUB(NOW(), INTERVAL 2 YEAR)
-      GROUP BY MONTH(c.ContractStartDate), MONTHNAME(c.ContractStartDate)
+        AND ${ACTIVE_CONTRACT}
+        AND c.contract_start_date >= DATE_SUB(NOW(), INTERVAL 2 YEAR)
+      GROUP BY MONTH(c.contract_start_date), MONTHNAME(c.contract_start_date)
       ORDER BY month ASC
     `, { type: QueryTypes.SELECT });
 
@@ -437,46 +450,46 @@ exports.getComplianceReport = async (req, res) => {
   try {
     const approvalStatus = await sequelize.query(`
       SELECT 
-        c.ApprovalStatus,
+        c.subscription_status as ApprovalStatus,
         COUNT(*) as count,
-        ROUND(COUNT(*) * 100.0 / (SELECT COUNT(*) FROM contracts), 2) as percentage
-      FROM contracts c
-      GROUP BY c.ApprovalStatus
+        ROUND(COUNT(*) * 100.0 / (SELECT COUNT(*) FROM ${CONTRACTS_TABLE}), 2) as percentage
+      FROM ${CONTRACTS_TABLE} c
+      GROUP BY c.subscription_status
       ORDER BY count DESC
     `, { type: QueryTypes.SELECT });
 
     const limitViolations = await sequelize.query(`
       SELECT 
-        c.LimitCheck,
+        h.status as LimitCheck,
         COUNT(*) as count,
-        ROUND(COUNT(*) * 100.0 / (SELECT COUNT(*) FROM contracts), 2) as percentage
-      FROM contracts c
-      GROUP BY c.LimitCheck
+        ROUND(COUNT(*) * 100.0 / (SELECT COUNT(*) FROM ${HANDSETS_TABLE}), 2) as percentage
+      FROM ${HANDSETS_TABLE} h
+      GROUP BY h.status
       ORDER BY count DESC
     `, { type: QueryTypes.SELECT });
 
     const pendingApprovals = await sequelize.query(`
       SELECT 
-        c.ContractNumber,
+        c.id as ContractNumber,
         e.FullName,
         e.Department,
-        c.MonthlyPayment,
-        c.DevicePrice,
-        c.ContractStartDate,
+        ${MONTHLY_PAYMENT} as MonthlyPayment,
+        c.device_initial_cost as DevicePrice,
+        c.contract_start_date as ContractStartDate,
         DATEDIFF(NOW(), c.createdAt) as daysPending
-      FROM contracts c
-      INNER JOIN employees e ON c.EmployeeCode = e.EmployeeCode
-      WHERE c.ApprovalStatus = 'Pending'
+      FROM ${CONTRACTS_TABLE} c
+      INNER JOIN employees e ON ${EMPLOYEE_CONTRACT_JOIN}
+      WHERE c.subscription_status != 'Active'
       ORDER BY daysPending DESC
     `, { type: QueryTypes.SELECT });
 
     const subscriptionStatus = await sequelize.query(`
       SELECT 
-        c.SubscriptionStatus,
+        c.subscription_status as SubscriptionStatus,
         COUNT(*) as count,
-        ROUND(COUNT(*) * 100.0 / (SELECT COUNT(*) FROM contracts), 2) as percentage
-      FROM contracts c
-      GROUP BY c.SubscriptionStatus
+        ROUND(COUNT(*) * 100.0 / (SELECT COUNT(*) FROM ${CONTRACTS_TABLE}), 2) as percentage
+      FROM ${CONTRACTS_TABLE} c
+      GROUP BY c.subscription_status
       ORDER BY count DESC
     `, { type: QueryTypes.SELECT });
 
@@ -500,17 +513,17 @@ exports.getMonthlyReport = async (req, res) => {
 
     const monthlySummary = await sequelize.query(`
       SELECT 
-        COUNT(DISTINCT c.EmployeeCode) as activeBeneficiaries,
-        COUNT(c.ContractNumber) as totalContracts,
-        SUM(c.MonthlyPayment) as totalMonthlyCost,
-        AVG(c.MonthlyPayment) as avgMonthlyPayment,
-        SUM(c.DevicePrice) as totalDeviceCost,
-        COUNT(CASE WHEN c.DeviceName IS NOT NULL THEN 1 END) as deviceAllocations
-      FROM contracts c
-      INNER JOIN employees e ON c.EmployeeCode = e.EmployeeCode
+        COUNT(DISTINCT c.employee_code) as activeBeneficiaries,
+        COUNT(c.id) as totalContracts,
+        SUM(${MONTHLY_PAYMENT}) as totalMonthlyCost,
+        AVG(${MONTHLY_PAYMENT}) as avgMonthlyPayment,
+        SUM(c.device_initial_cost) as totalDeviceCost,
+        COUNT(CASE WHEN c.device IS NOT NULL AND c.device != '' THEN 1 END) as deviceAllocations
+      FROM ${CONTRACTS_TABLE} c
+      INNER JOIN employees e ON ${EMPLOYEE_CONTRACT_JOIN}
       WHERE e.EmploymentStatus = 'Active' 
-        AND c.ApprovalStatus = 'Approved'
-        AND DATE_FORMAT(c.ContractStartDate, '%Y-%m') = :targetMonth
+        AND ${ACTIVE_CONTRACT}
+        AND DATE_FORMAT(c.contract_start_date, '%Y-%m') = :targetMonth
     `, { 
       replacements: { targetMonth },
       type: QueryTypes.SELECT 
@@ -519,14 +532,14 @@ exports.getMonthlyReport = async (req, res) => {
     const departmentBreakdown = await sequelize.query(`
       SELECT 
         e.Department,
-        COUNT(c.ContractNumber) as contractCount,
-        SUM(c.MonthlyPayment) as departmentCost,
-        AVG(c.MonthlyPayment) as avgCostPerContract
-      FROM contracts c
-      INNER JOIN employees e ON c.EmployeeCode = e.EmployeeCode
+        COUNT(c.id) as contractCount,
+        SUM(${MONTHLY_PAYMENT}) as departmentCost,
+        AVG(${MONTHLY_PAYMENT}) as avgCostPerContract
+      FROM ${CONTRACTS_TABLE} c
+      INNER JOIN employees e ON ${EMPLOYEE_CONTRACT_JOIN}
       WHERE e.EmploymentStatus = 'Active' 
-        AND c.ApprovalStatus = 'Approved'
-        AND DATE_FORMAT(c.ContractStartDate, '%Y-%m') = :targetMonth
+        AND ${ACTIVE_CONTRACT}
+        AND DATE_FORMAT(c.contract_start_date, '%Y-%m') = :targetMonth
       GROUP BY e.Department
       ORDER BY departmentCost DESC
     `, { 
@@ -555,18 +568,18 @@ exports.getQuarterlyReport = async (req, res) => {
 
     const quarterlySummary = await sequelize.query(`
       SELECT 
-        COUNT(DISTINCT c.EmployeeCode) as activeBeneficiaries,
-        COUNT(c.ContractNumber) as totalContracts,
-        SUM(c.MonthlyPayment) as totalQuarterlyCost,
-        AVG(c.MonthlyPayment) as avgMonthlyPayment,
-        SUM(c.DevicePrice) as totalDeviceCost,
-        COUNT(CASE WHEN c.DeviceName IS NOT NULL THEN 1 END) as deviceAllocations
-      FROM contracts c
-      INNER JOIN employees e ON c.EmployeeCode = e.EmployeeCode
+        COUNT(DISTINCT c.employee_code) as activeBeneficiaries,
+        COUNT(c.id) as totalContracts,
+        SUM(${MONTHLY_PAYMENT}) as totalQuarterlyCost,
+        AVG(${MONTHLY_PAYMENT}) as avgMonthlyPayment,
+        SUM(c.device_initial_cost) as totalDeviceCost,
+        COUNT(CASE WHEN c.device IS NOT NULL AND c.device != '' THEN 1 END) as deviceAllocations
+      FROM ${CONTRACTS_TABLE} c
+      INNER JOIN employees e ON ${EMPLOYEE_CONTRACT_JOIN}
       WHERE e.EmploymentStatus = 'Active' 
-        AND c.ApprovalStatus = 'Approved'
-        AND c.ContractStartDate >= :quarterStart
-        AND c.ContractStartDate <= :quarterEnd
+        AND ${ACTIVE_CONTRACT}
+        AND c.contract_start_date >= :quarterStart
+        AND c.contract_start_date <= :quarterEnd
     `, { 
       replacements: { quarterStart, quarterEnd },
       type: QueryTypes.SELECT 
@@ -574,16 +587,16 @@ exports.getQuarterlyReport = async (req, res) => {
 
     const monthlyBreakdown = await sequelize.query(`
       SELECT 
-        DATE_FORMAT(c.ContractStartDate, '%Y-%m') as month,
-        COUNT(c.ContractNumber) as contractCount,
-        SUM(c.MonthlyPayment) as monthlyCost
-      FROM contracts c
-      INNER JOIN employees e ON c.EmployeeCode = e.EmployeeCode
+        DATE_FORMAT(c.contract_start_date, '%Y-%m') as month,
+        COUNT(c.id) as contractCount,
+        SUM(${MONTHLY_PAYMENT}) as monthlyCost
+      FROM ${CONTRACTS_TABLE} c
+      INNER JOIN employees e ON ${EMPLOYEE_CONTRACT_JOIN}
       WHERE e.EmploymentStatus = 'Active' 
-        AND c.ApprovalStatus = 'Approved'
-        AND c.ContractStartDate >= :quarterStart
-        AND c.ContractStartDate <= :quarterEnd
-      GROUP BY DATE_FORMAT(c.ContractStartDate, '%Y-%m')
+        AND ${ACTIVE_CONTRACT}
+        AND c.contract_start_date >= :quarterStart
+        AND c.contract_start_date <= :quarterEnd
+      GROUP BY DATE_FORMAT(c.contract_start_date, '%Y-%m')
       ORDER BY month ASC
     `, { 
       replacements: { quarterStart, quarterEnd },
@@ -605,34 +618,34 @@ exports.getROIReport = async (req, res) => {
   try {
     const totalInvestment = await sequelize.query(`
       SELECT 
-        SUM(c.MonthlyPayment) as totalMonthlyInvestment,
-        SUM(c.DevicePrice) as totalDeviceInvestment,
-        SUM(c.UpfrontPayment) as totalUpfrontInvestment,
-        COUNT(c.ContractNumber) as totalContracts
-      FROM contracts c
-      INNER JOIN employees e ON c.EmployeeCode = e.EmployeeCode
-      WHERE e.EmploymentStatus = 'Active' AND c.ApprovalStatus = 'Approved'
+        SUM(${MONTHLY_PAYMENT}) as totalMonthlyInvestment,
+        SUM(c.device_initial_cost) as totalDeviceInvestment,
+        SUM(c.device_upfront_payment) as totalUpfrontInvestment,
+        COUNT(c.id) as totalContracts
+      FROM ${CONTRACTS_TABLE} c
+      INNER JOIN employees e ON ${EMPLOYEE_CONTRACT_JOIN}
+      WHERE e.EmploymentStatus = 'Active' AND ${ACTIVE_CONTRACT}
     `, { type: QueryTypes.SELECT });
 
     const costPerEmployee = await sequelize.query(`
       SELECT 
         COUNT(DISTINCT e.EmployeeCode) as totalEmployees,
-        SUM(c.MonthlyPayment) as totalMonthlyCost,
-        ROUND(SUM(c.MonthlyPayment) / COUNT(DISTINCT e.EmployeeCode), 2) as costPerEmployee
+        SUM(${MONTHLY_PAYMENT}) as totalMonthlyCost,
+        ROUND(SUM(${MONTHLY_PAYMENT}) / COUNT(DISTINCT e.EmployeeCode), 2) as costPerEmployee
       FROM employees e
-      LEFT JOIN contracts c ON e.EmployeeCode = c.EmployeeCode 
-        AND c.ApprovalStatus = 'Approved'
+      LEFT JOIN ${CONTRACTS_TABLE} c ON e.EmployeeCode COLLATE utf8mb4_general_ci = c.employee_code COLLATE utf8mb4_general_ci
+        AND ${ACTIVE_CONTRACT}
       WHERE e.EmploymentStatus = 'Active'
     `, { type: QueryTypes.SELECT });
 
     const utilizationROI = await sequelize.query(`
       SELECT 
         COUNT(DISTINCT e.EmployeeCode) as totalEligibleEmployees,
-        COUNT(DISTINCT c.EmployeeCode) as employeesUsingBenefits,
-        ROUND(COUNT(DISTINCT c.EmployeeCode) * 100.0 / COUNT(DISTINCT e.EmployeeCode), 2) as utilizationRate
+        COUNT(DISTINCT c.employee_code) as employeesUsingBenefits,
+        ROUND(COUNT(DISTINCT c.employee_code) * 100.0 / COUNT(DISTINCT e.EmployeeCode), 2) as utilizationRate
       FROM employees e
-      LEFT JOIN contracts c ON e.EmployeeCode = c.EmployeeCode 
-        AND c.ApprovalStatus = 'Approved'
+      LEFT JOIN ${CONTRACTS_TABLE} c ON e.EmployeeCode COLLATE utf8mb4_general_ci = c.employee_code COLLATE utf8mb4_general_ci
+        AND ${ACTIVE_CONTRACT}
       WHERE e.EmploymentStatus = 'Active'
     `, { type: QueryTypes.SELECT });
 
