@@ -46,14 +46,13 @@ module.exports.checkAdmin = (req, res, next) => {
 
   try {
     // Check if the user's role is not admin (RoleID = 1)
-    if (req.user.RoleID !== "1" && req.user.RoleID !== 3 && req.user.RoleID !== 9 && req.user.RoleID !== 10 && req.user.RoleID !== 11) {
-      console.log("Here is the admin role", req?.user?.RoleID)
+    if (req.user.RoleID !== 1 && req.user.RoleID !== 3 && req.user.RoleID !== 9 && req.user.RoleID !== 10 && req.user.RoleID !== 11) {
       return res.status(403).json({
         status: "FAILURE",
         message: "Access denied. User does not have access to this route.",
       });
     }
-    
+
     next();
   } catch (err) {
     return res.status(401).json({
