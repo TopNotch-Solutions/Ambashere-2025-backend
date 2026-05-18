@@ -711,9 +711,9 @@ exports.syncStaffFromContractData = async (req, res) => {
           AllocationID: allocationID || 1,
           UserName: username,
           RoleID: 3, // set default role if needed
-          Gender: "Male", // set default role if needed
-          Email: `noemail_${employeeCode}@mtc.com.na`, // placeholder
-          PhoneNumber: contract.cellNumber || "81",
+          Gender: "", // set default role if needed
+          Email: "", // placeholder
+          PhoneNumber: contract.cellNumber || "",
           ServicePlan: contract.prePost || "Prepaid",
           Department: "",
           Position: contract.position || "",

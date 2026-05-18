@@ -2,7 +2,7 @@ const { DataTypes } = require("sequelize");
 const sequelize = require("../config/database"); // Assuming you have a database connection config here
 
 const ContractData = sequelize.define(
-  "contractData", // Model name
+  "employee_general", // Model name
   {
     id: {
       type: DataTypes.INTEGER,
@@ -177,7 +177,7 @@ const ContractData = sequelize.define(
   },
   {
     timestamps: false, // No createdAt/updatedAt columns in your SQL schema
-    tableName: "contractData", // Explicitly set the table name
+    tableName: "employee_general", // Explicitly set the table name
   }
 );
 module.exports = ContractData;

@@ -44,8 +44,7 @@ const Staff = sequelize.define(
     },
     Email: {
       type: DataTypes.STRING,
-      allowNull: false,
-      unique: true,
+      allowNull: true,
     },
     PhoneNumber: {
       type: DataTypes.STRING,

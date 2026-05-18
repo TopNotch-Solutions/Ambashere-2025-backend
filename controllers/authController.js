@@ -131,8 +131,8 @@ exports.login = async (req, res) => {
     }
 
     // 3. Token generation
-    const token = createToken(staff.EmployeeCode, staff.RoleID);
-    const refreshToken = createRefreshToken(staff.EmployeeCode, staff.RoleID);
+    const token = createToken(staff.EmployeeCode, Number(staff.RoleID));
+    const refreshToken = createRefreshToken(staff.EmployeeCode, Number(staff.RoleID));
 
     if (!token || !refreshToken) {
       return res.status(500).json({ message: "Failed to generate tokens" });
