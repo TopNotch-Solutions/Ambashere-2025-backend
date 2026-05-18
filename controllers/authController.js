@@ -110,7 +110,6 @@ exports.login = async (req, res) => {
   }
 
   try {
-
     const userDN = await authenticateWithRetry(Username, Password);
 
     if (!userDN) {
@@ -118,7 +117,7 @@ exports.login = async (req, res) => {
     }
 
     // 2. Database lookup
-    console.log("Here is the cn", userDN)
+    console.log("Here is the cn", userDN);
     const staff = await Staff.findOne({
       where: {
         Email: userDN.mail,
@@ -130,13 +129,23 @@ exports.login = async (req, res) => {
       return res.status(401).json({ message: "Invalid credentials" });
     }
 
+    // Ensure we handle the value safely as a plain number for the token functions
+    const cleanRoleID = Number(staff.RoleID);
+
     // 3. Token generation
-    const token = createToken(staff.EmployeeCode, Number(staff.RoleID));
-    const refreshToken = createRefreshToken(staff.EmployeeCode, Number(staff.RoleID));
+    const token = createToken(staff.EmployeeCode, cleanRoleID);
+    const refreshToken = createRefreshToken(staff.EmployeeCode, cleanRoleID);
 
     if (!token || !refreshToken) {
       return res.status(500).json({ message: "Failed to generate tokens" });
     }
+
+    // Safely format the employee object for the JSON response payload
+    const formattedEmployee = {
+      ...(staff.toJSON ? staff.toJSON() : staff), // Convert Sequelize instance to plain object safely
+      RoleID: cleanRoleID,
+      AllocationID: staff.AllocationID !== null && staff.AllocationID !== undefined ? Number(staff.AllocationID) : null
+    };
 
     // 4. Single Final Response
     return res
@@ -145,7 +154,7 @@ exports.login = async (req, res) => {
       .status(200)
       .json({
         message: `User authenticated: ${userDN.displayName}`,
-        employee: staff,
+        employee: formattedEmployee, // Sends the safe object containing genuine integers
       });
 
   } catch (error) {
