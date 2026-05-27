@@ -2,14 +2,40 @@ const Notifications = require("../models/Notifications");
 const { io } = require("../server");
 const logger = require ("../middlewares/errorLogger");
 const Staff = require("../models/Staff");
-const { where } = require("sequelize");
+const sequelize = require("../config/database");
+const { Op } = require("sequelize");
+
+function normalizeEmployeeCode(employeeCode) {
+  return String(employeeCode || "")
+    .trim()
+    .replace(/[-\s]/g, "")
+    .toUpperCase();
+}
+
+function normalizedEmployeeCodeWhere(columnName, employeeCode) {
+  return sequelize.where(
+    sequelize.fn(
+      "REPLACE",
+      sequelize.fn(
+        "REPLACE",
+        sequelize.fn("UPPER", sequelize.col(columnName)),
+        "-",
+        ""
+      ),
+      " ",
+      ""
+    ),
+    normalizeEmployeeCode(employeeCode)
+  );
+}
 
 exports.createNotification = async (req, res) => {
   try {
     console.log("IO Object:", io); // Log the io object
     const { EmployeeCode, Type, Message, Recipient } = req.body;
+    const normalizedEmployeeCode = normalizeEmployeeCode(EmployeeCode);
     const notification = await Notifications.create({
-      EmployeeCode,
+      EmployeeCode: normalizedEmployeeCode,
       Type,
       Message,
       Viewed: false,
@@ -37,6 +63,7 @@ exports.createNotification = async (req, res) => {
 exports.createAdminNotifications = async (req, res) => {
   try {
     const { EmployeeCode, Type, Message } = req.body;
+    const normalizedEmployeeCode = normalizeEmployeeCode(EmployeeCode);
 
     // Fetch all admins
     const allAdmins = await Staff.findAll({
@@ -53,7 +80,7 @@ exports.createAdminNotifications = async (req, res) => {
     // Create and send notifications to each admin
     for (const admin of allAdmins) {
       const notification = await Notifications.create({
-        EmployeeCode, // The employee who triggered the notification
+        EmployeeCode: normalizedEmployeeCode, // The employee who triggered the notification
         Type,
         Message,
         Viewed: false,
@@ -73,12 +100,12 @@ exports.createAdminNotifications = async (req, res) => {
     const userAcknowledgementMessage = `Hi, your General/Property Loss Claim form has been successfully submitted. Our team will review the details and contact you shortly to guide you through the next steps. Thank you for reporting the incident.`;
 
     const userNotification = await Notifications.create({
-      EmployeeCode,
+      EmployeeCode: normalizedEmployeeCode,
       Type,
       Message: userAcknowledgementMessage,
       Viewed: false,
       Created_At: new Date(),
-      RecipientEmployeeCode: EmployeeCode,
+      RecipientEmployeeCode: normalizedEmployeeCode,
     });
 
     if (io) {
@@ -103,11 +130,11 @@ exports.createAdminNotifications = async (req, res) => {
 
 exports.getNotifications = async (req, res) => {
   try {
-    const employeeCode = req.user.EmployeeCode;
+    const employeeCode = normalizeEmployeeCode(req.user.EmployeeCode);
 
     let notifications;
       notifications = await Notifications.findAll({
-        where: {EmployeeCode: employeeCode,},
+        where: normalizedEmployeeCodeWhere("EmployeeCode", employeeCode),
         order: [["Created_At", "DESC"]],
       });
       console.log("My notifications: ",notifications)
@@ -122,7 +149,7 @@ exports.getNotifications = async (req, res) => {
 };
 
 exports.getAdminNotifications = async (req, res) => {
-  const employeeCode = req.user?.EmployeeCode;
+  const employeeCode = normalizeEmployeeCode(req.user?.EmployeeCode);
   console.log("My notification Code: ",employeeCode)
   if (!employeeCode) {
     return res.status(400).json({ success: false, error: "Employee Code is empty" });
@@ -130,7 +157,12 @@ exports.getAdminNotifications = async (req, res) => {
 
   try {
     const notificationCount = await Notifications.count({
-      where: { RecipientEmployeeCode: employeeCode, Viewed: false }, // Assuming this is the field for receivers
+      where: {
+        [Op.and]: [
+          normalizedEmployeeCodeWhere("RecipientEmployeeCode", employeeCode),
+          { Viewed: false },
+        ],
+      }, // Assuming this is the field for receivers
     });
 
     res.status(200).json({ count: notificationCount });
@@ -149,12 +181,11 @@ exports.getAdminNotifications = async (req, res) => {
 exports.markNotificationAsRead = async (req, res) => {
   console.log("Your employee: ",req.user?.EmployeeCode,)
   try {
+    const employeeCode = normalizeEmployeeCode(req.user?.EmployeeCode);
     const [updatedRows] = await Notifications.update(
       { Viewed: true },
       {
-        where: {
-          EmployeeCode: req.user?.EmployeeCode,
-        },
+        where: normalizedEmployeeCodeWhere("EmployeeCode", employeeCode),
       }
     );
 

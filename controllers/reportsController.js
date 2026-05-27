@@ -6,10 +6,12 @@ const CdrLiveEmployeeHandsetDetail = require("../models/crdliveEmployeeHandsetDe
 
 const CONTRACTS_TABLE = CdrLiveEmployeeContractDetails.tableName;
 const HANDSETS_TABLE = CdrLiveEmployeeHandsetDetail.tableName;
+const normalizedEmployeeCodeSql = (columnName) =>
+  `REPLACE(REPLACE(UPPER(${columnName}), '-', ''), ' ', '')`;
 const EMPLOYEE_CONTRACT_JOIN =
-  "c.employee_code COLLATE utf8mb4_general_ci = e.EmployeeCode COLLATE utf8mb4_general_ci";
+  `${normalizedEmployeeCodeSql("c.employee_code")} COLLATE utf8mb4_general_ci = ${normalizedEmployeeCodeSql("e.EmployeeCode")} COLLATE utf8mb4_general_ci`;
 const EMPLOYEE_HANDSET_JOIN =
-  "h.employee_code COLLATE utf8mb4_general_ci = e.EmployeeCode COLLATE utf8mb4_general_ci";
+  `${normalizedEmployeeCodeSql("h.employee_code")} COLLATE utf8mb4_general_ci = ${normalizedEmployeeCodeSql("e.EmployeeCode")} COLLATE utf8mb4_general_ci`;
 const ACTIVE_CONTRACT = "c.subscription_status = 'Active'";
 const ACTIVE_HANDSET = "h.status = 'active'";
 const MONTHLY_PAYMENT =
@@ -264,9 +266,9 @@ exports.getDeviceAllocationReport = async (req, res) => {
         COUNT(DISTINCT c.id) as totalContracts,
         ROUND(COUNT(DISTINCT h.id) * 100.0 / NULLIF(COUNT(DISTINCT c.id), 0), 2) as deviceUsagePercentage
       FROM employees e
-      LEFT JOIN ${CONTRACTS_TABLE} c ON e.EmployeeCode COLLATE utf8mb4_general_ci = c.employee_code COLLATE utf8mb4_general_ci
+      LEFT JOIN ${CONTRACTS_TABLE} c ON ${EMPLOYEE_CONTRACT_JOIN}
         AND ${ACTIVE_CONTRACT}
-      LEFT JOIN ${HANDSETS_TABLE} h ON e.EmployeeCode COLLATE utf8mb4_general_ci = h.employee_code COLLATE utf8mb4_general_ci
+      LEFT JOIN ${HANDSETS_TABLE} h ON ${EMPLOYEE_HANDSET_JOIN}
       WHERE e.EmploymentStatus = 'Active'
       GROUP BY e.Department
       ORDER BY deviceCount DESC
@@ -346,7 +348,7 @@ exports.getBenefitUtilizationReport = async (req, res) => {
         COUNT(DISTINCT c.employee_code) as employeesWithBenefits,
         ROUND(COUNT(DISTINCT c.employee_code) * 100.0 / COUNT(DISTINCT e.EmployeeCode), 2) as utilizationPercentage
       FROM employees e
-      LEFT JOIN ${CONTRACTS_TABLE} c ON e.EmployeeCode COLLATE utf8mb4_general_ci = c.employee_code COLLATE utf8mb4_general_ci
+      LEFT JOIN ${CONTRACTS_TABLE} c ON ${EMPLOYEE_CONTRACT_JOIN}
         AND ${ACTIVE_CONTRACT}
       WHERE e.EmploymentStatus = 'Active'
     `, { type: QueryTypes.SELECT });
@@ -358,7 +360,7 @@ exports.getBenefitUtilizationReport = async (req, res) => {
         COUNT(DISTINCT c.employee_code) as employeesWithBenefits,
         ROUND(COUNT(DISTINCT c.employee_code) * 100.0 / COUNT(DISTINCT e.EmployeeCode), 2) as utilizationPercentage
       FROM employees e
-      LEFT JOIN ${CONTRACTS_TABLE} c ON e.EmployeeCode COLLATE utf8mb4_general_ci = c.employee_code COLLATE utf8mb4_general_ci
+      LEFT JOIN ${CONTRACTS_TABLE} c ON ${EMPLOYEE_CONTRACT_JOIN}
         AND ${ACTIVE_CONTRACT}
       WHERE e.EmploymentStatus = 'Active'
       GROUP BY e.Department
@@ -633,7 +635,7 @@ exports.getROIReport = async (req, res) => {
         SUM(${MONTHLY_PAYMENT}) as totalMonthlyCost,
         ROUND(SUM(${MONTHLY_PAYMENT}) / COUNT(DISTINCT e.EmployeeCode), 2) as costPerEmployee
       FROM employees e
-      LEFT JOIN ${CONTRACTS_TABLE} c ON e.EmployeeCode COLLATE utf8mb4_general_ci = c.employee_code COLLATE utf8mb4_general_ci
+      LEFT JOIN ${CONTRACTS_TABLE} c ON ${EMPLOYEE_CONTRACT_JOIN}
         AND ${ACTIVE_CONTRACT}
       WHERE e.EmploymentStatus = 'Active'
     `, { type: QueryTypes.SELECT });
@@ -644,7 +646,7 @@ exports.getROIReport = async (req, res) => {
         COUNT(DISTINCT c.employee_code) as employeesUsingBenefits,
         ROUND(COUNT(DISTINCT c.employee_code) * 100.0 / COUNT(DISTINCT e.EmployeeCode), 2) as utilizationRate
       FROM employees e
-      LEFT JOIN ${CONTRACTS_TABLE} c ON e.EmployeeCode COLLATE utf8mb4_general_ci = c.employee_code COLLATE utf8mb4_general_ci
+      LEFT JOIN ${CONTRACTS_TABLE} c ON ${EMPLOYEE_CONTRACT_JOIN}
         AND ${ACTIVE_CONTRACT}
       WHERE e.EmploymentStatus = 'Active'
     `, { type: QueryTypes.SELECT });

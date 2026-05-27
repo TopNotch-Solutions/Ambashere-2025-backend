@@ -5,6 +5,36 @@ const logger = require("../middlewares/errorLogger");
 const Notifications = require("../models/Notifications");
 const { sendAdminEmail } = require("../middlewares/adminEmail");
 
+function normalizeEmployeeCode(employeeCode) {
+  return String(employeeCode || "")
+    .trim()
+    .replace(/[-\s]/g, "")
+    .toUpperCase();
+}
+
+function normalizedEmployeeCodeWhere(columnName, employeeCode) {
+  return sequelize.where(
+    sequelize.fn(
+      "REPLACE",
+      sequelize.fn(
+        "REPLACE",
+        sequelize.fn("UPPER", sequelize.col(columnName)),
+        "-",
+        ""
+      ),
+      " ",
+      ""
+    ),
+    normalizeEmployeeCode(employeeCode)
+  );
+}
+
+async function findStaffByEmployeeCode(employeeCode) {
+  return Staff.findOne({
+    where: normalizedEmployeeCodeWhere("EmployeeCode", employeeCode),
+  });
+}
+
 // Finance: Probation verification for first-time requests
 exports.verifyProbation = async (req, res) => {
   const { id } = req.params;
@@ -28,7 +58,7 @@ exports.verifyProbation = async (req, res) => {
     }
 
     // Get employee details for verification
-    const employee = await Staff.findByPk(handset.EmployeeCode);
+    const employee = await findStaffByEmployeeCode(handset.EmployeeCode);
     if (!employee) {
       return res.status(404).json({
         success: false,
@@ -135,7 +165,7 @@ exports.verifyRenewal = async (req, res) => {
     }
 
     // Get employee details
-    const employee = await Staff.findByPk(handset.EmployeeCode);
+    const employee = await findStaffByEmployeeCode(handset.EmployeeCode);
     if (!employee) {
       return res.status(404).json({
         success: false,

@@ -1,12 +1,37 @@
 const Image = require("../models/Image");
 const Staff = require("../models/Staff");
+const sequelize = require("../config/database");
 const upload = require("multer")(); 
 const logger = require("../middlewares/errorLogger")
+
+function normalizeEmployeeCode(employeeCode) {
+  return String(employeeCode || "")
+    .trim()
+    .replace(/[-\s]/g, "")
+    .toUpperCase();
+}
+
+function normalizedEmployeeCodeWhere(columnName, employeeCode) {
+  return sequelize.where(
+    sequelize.fn(
+      "REPLACE",
+      sequelize.fn(
+        "REPLACE",
+        sequelize.fn("UPPER", sequelize.col(columnName)),
+        "-",
+        ""
+      ),
+      " ",
+      ""
+    ),
+    normalizeEmployeeCode(employeeCode)
+  );
+}
 
 // Upload Image Path to Database
 exports.updateProfilePicture = upload.single("profilePhoto", async (req, res) => {
   try {
-    const userId = req.body.userId; // Assuming the user ID is sent as part of the request body
+    const userId = normalizeEmployeeCode(req.body.userId); // Assuming the user ID is sent as part of the request body
     const file = req.file;
     if (!userId || !file) {
       return res.status(400).json({ message: "Missing user ID or file" });
@@ -31,7 +56,9 @@ exports.updateProfilePicture = upload.single("profilePhoto", async (req, res) =>
     // Fetch the existing profile picture record from the database (if any)
     let existingImage;
     try {
-      existingImage = await Image.findOne({ where: { EmployeeCode: userId } });
+      existingImage = await Image.findOne({
+        where: normalizedEmployeeCodeWhere("EmployeeCode", userId),
+      });
     } catch (error) {
       console.error("Error fetching existing profile picture:", error);
       return res.status(500).json({ message: "Server error" });
@@ -83,7 +110,7 @@ exports.updateProfilePicture = upload.single("profilePhoto", async (req, res) =>
 
 exports.getProfilePicture = async (req, res) => {
   try {
-    const userId = req.params.userId; // Assuming the user ID is passed as a route parameter
+    const userId = normalizeEmployeeCode(req.params.userId); // Assuming the user ID is passed as a route parameter
     if (!userId) {
       return res.status(400).json({ message: "Missing user ID" });
     }
@@ -91,7 +118,9 @@ exports.getProfilePicture = async (req, res) => {
     // Fetch the profile picture record from the database
     let profilePicture;
     try {
-      profilePicture = await Image.findOne({ where: { EmployeeCode: userId } });
+      profilePicture = await Image.findOne({
+        where: normalizedEmployeeCodeWhere("EmployeeCode", userId),
+      });
     } catch (error) {
       console.error("Error fetching profile picture:", error);
       return res.status(500).json({ message: "Server error" });
@@ -110,7 +139,7 @@ exports.getProfilePicture = async (req, res) => {
 
 exports.postProfilePicture = async (req, res) => {
  try{
-  const userId = req.params.userId;
+  const userId = normalizeEmployeeCode(req.params.userId);
   const ProfileImage = req.body;
 //   console.log(ProfileImage);
 //   console.log('Type of profileImage:', typeof ProfileImage); // Should be 'string'
@@ -118,16 +147,23 @@ exports.postProfilePicture = async (req, res) => {
     if (!userId) {
       return res.status(400).json({ message: "Missing fields" });
     }else{
-      const staff = await Staff.findOne({ where: { EmployeeCode: userId } });
+      const staff = await Staff.findOne({
+        where: normalizedEmployeeCodeWhere("EmployeeCode", userId),
+      });
 
     if (!staff) {
       return res.status(404).json({ message: "Staff not found" });
     }else{
-      const newStaff = await Staff.update({ProfileImage}, { where: { EmployeeCode: userId } });
+      const newStaff = await Staff.update(
+        {ProfileImage},
+        { where: normalizedEmployeeCodeWhere("EmployeeCode", userId) }
+      );
       if (!newStaff) {
         return res.status(404).json({ message: "Staff not found" });
       }else{
-        const staffUpdated = await Staff.findOne({ where: { EmployeeCode: userId } });
+        const staffUpdated = await Staff.findOne({
+          where: normalizedEmployeeCodeWhere("EmployeeCode", userId),
+        });
         
         res.status(200).json({ message: "Staff record updated successfully" , ProfileImage: staffUpdated.ProfileImage});
       }

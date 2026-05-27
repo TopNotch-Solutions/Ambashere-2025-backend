@@ -16,6 +16,7 @@ const Contracts = require("../models/Contracts");
 const SpectraData = require("../models/spectraData");
 const stringSimilarity = require("string-similarity");
 const Asset = require("../models/Assets");
+const CdrLiveEmployeeDetail = require("../models/crdliveEmployeeDetail");
 
 // Create Employee
 exports.createStaff = async (req, res) => {
@@ -37,9 +38,10 @@ exports.createStaff = async (req, res) => {
       EmploymentCategory,
       EmploymentStatus,
     } = req.body;
+    const normalizedEmployeeCode = normalizeEmployeeCode(EmployeeCode);
 
     // Validate required fields
-    if (!EmployeeCode || !RoleID || !FirstName || !LastName || !Email) {
+    if (!normalizedEmployeeCode || !RoleID || !FirstName || !LastName || !Email) {
       return res.status(400).json({
         success: false,
         message: "Missing required fields: EmployeeCode, RoleID, FirstName, LastName, and Email are required"
@@ -57,7 +59,9 @@ exports.createStaff = async (req, res) => {
     }
 
     // Check if employee already exists
-    const existingEmployee = await Staff.findByPk(EmployeeCode);
+    const existingEmployee = await Staff.findOne({
+      where: normalizedEmployeeCodeWhere("EmployeeCode", normalizedEmployeeCode),
+    });
     if (existingEmployee) {
       return res.status(409).json({
         success: false,
@@ -70,7 +74,7 @@ exports.createStaff = async (req, res) => {
 
     // Create a new employee
     const newEmployee = await Staff.create({
-      EmployeeCode,
+      EmployeeCode: normalizedEmployeeCode,
       RoleID,
       AllocationID,
       FirstName,
@@ -183,7 +187,9 @@ exports.getAllStaff = async (req, res) => {
 
 exports.getStaffById = async (req, res) => {
   try {
-    const staff = await Staff.findByPk(req.params.id);
+    const staff = await Staff.findOne({
+      where: normalizedEmployeeCodeWhere("EmployeeCode", req.params.id),
+    });
     if (!staff) {
       return res.status(404).json({ message: "Staff not found" });
     }
@@ -199,13 +205,13 @@ exports.getStaffById = async (req, res) => {
 
 // Update Employee Phone Number
 exports.updateStaff = async (req, res) => {
-  const { employeeCode } = req.params;
+  const employeeCode = normalizeEmployeeCode(req.params.employeeCode);
   const updateFields = req.body;
 
   try {
     // Find the staff member by EmployeeCode
     const staffMember = await Staff.findOne({
-      where: { EmployeeCode: employeeCode },
+      where: normalizedEmployeeCodeWhere("EmployeeCode", employeeCode),
     });
 
     if (!staffMember) {
@@ -244,12 +250,12 @@ exports.updateStaff = async (req, res) => {
 // Remove Employees
 exports.setInactive = async (req, res) => {
   try {
-    const employeeCode = req.params.employeeCode;
+    const employeeCode = normalizeEmployeeCode(req.params.employeeCode);
 
     const [results, metadata] = await sequelize.query(
       `UPDATE employees
       SET EmploymentStatus = 'inactive'
-      WHERE EmployeeCode = :employeeCode`,
+      WHERE ${normalizedEmployeeCodeSql("EmployeeCode")} = :employeeCode`,
       {
         replacements: { employeeCode },
         type: sequelize.QueryTypes.UPDATE,
@@ -341,12 +347,10 @@ exports.getActiveStaff = async (req, res) => {
   }
 };
 exports.getStaffAllocationByEmployeeCode = async (req, res) => {
-  const {employeeCode} = req.params;
+  const employeeCode = normalizeEmployeeCode(req.params.employeeCode);
   try {
     const employee = await Staff.findOne({
-      where: {
-        EmployeeCode: employeeCode,
-      },
+      where: normalizedEmployeeCodeWhere("EmployeeCode", employeeCode),
     });
 
     if(!employee){
@@ -485,12 +489,12 @@ exports.getAdmin = async (req, res) => {
 };
 exports.getStaffWithAirtimeAllocationUser = async (req, res) => {
   try {
-    const employeeCode = req.params.id;
+    const employeeCode = normalizeEmployeeCode(req.params.id);
 
     const query = `SELECT e.EmployeeCode, e.AllocationID, e.FullName,  e.PhoneNumber, e.ServicePlan, a.AirtimeAllocation
       FROM employees e 
       INNER JOIN allocation a ON e.AllocationID = a.AllocationID
-      WHERE e.EmployeeCode = :employeeCode
+      WHERE ${normalizedEmployeeCodeSql("e.EmployeeCode")} = :employeeCode
       AND e.EmploymentStatus = 'Active';`;
 
     const staffWithAirtimeAllocation = await sequelize.query(query, {
@@ -511,19 +515,21 @@ exports.getStaffWithAirtimeAllocationUser = async (req, res) => {
 // Get Staff with Airtime Allocation
 exports.getStaffWithAirtimeAllocation = async (req, res) => {
   try {
-    const employeeCode = req.params.id;
+    const employeeCode = normalizeEmployeeCode(req.params.id);
 
     const query = `SELECT e.EmployeeCode, e.AllocationID, e.FullName,  e.PhoneNumber, e.ServicePlan, a.AirtimeAllocation
       FROM employees e 
       INNER JOIN allocation a ON e.AllocationID = a.AllocationID
-      WHERE e.EmployeeCode = :employeeCode
+      WHERE ${normalizedEmployeeCodeSql("e.EmployeeCode")} = :employeeCode
       AND e.EmploymentStatus = 'Active';`;
 
     const staffWithAirtimeAllocation = await sequelize.query(query, {
       replacements: { employeeCode },
       type: sequelize.QueryTypes.SELECT,
     });
-    const staff = await Staff.findOne({ where: { EmployeeCode: employeeCode } });
+    const staff = await Staff.findOne({
+      where: normalizedEmployeeCodeWhere("EmployeeCode", employeeCode),
+    });
 
     if (!staff) {
       return res.status(404).json({ message: "Staff not found" });
@@ -542,10 +548,10 @@ exports.getStaffWithAirtimeAllocation = async (req, res) => {
 
     const query2 = `SELECT c.*, p.PackageName, e.FullName, a.AirtimeAllocation
           FROM contracts c
-          INNER JOIN employees e ON c.EmployeeCode = e.EmployeeCode
+          INNER JOIN employees e ON ${normalizedEmployeeCodeSql("c.EmployeeCode")} = ${normalizedEmployeeCodeSql("e.EmployeeCode")}
           INNER JOIN packages p ON c.PackageID = p.PackageID
           INNER JOIN allocation a ON e.AllocationID = a.AllocationID
-          WHERE e.EmployeeCode = :employeeCode
+          WHERE ${normalizedEmployeeCodeSql("e.EmployeeCode")} = :employeeCode
           AND c.SubscriptionStatus != 'Expired'
           AND e.EmploymentStatus = 'Active'`;
     
@@ -555,10 +561,10 @@ exports.getStaffWithAirtimeAllocation = async (req, res) => {
         });
         const query3 = `SELECT c.*, p.PackageName, e.FullName, a.AirtimeAllocation
           FROM contracts c
-          INNER JOIN employees e ON c.EmployeeCode = e.EmployeeCode
+          INNER JOIN employees e ON ${normalizedEmployeeCodeSql("c.EmployeeCode")} = ${normalizedEmployeeCodeSql("e.EmployeeCode")}
           INNER JOIN packages p ON c.PackageID = p.PackageID
           INNER JOIN allocation a ON e.AllocationID = a.AllocationID
-          WHERE e.EmployeeCode = :employeeCode
+          WHERE ${normalizedEmployeeCodeSql("e.EmployeeCode")} = :employeeCode
           AND e.EmploymentStatus = 'Active'`;
     
         const contracts3 = await sequelize.query(query2, {
@@ -598,12 +604,13 @@ exports.data = async (req, res) => {
     // Loop through each record in TempData
     for (const temp of allTempData) {
       const {
-        employeeCode,
+        employeeCode: rawEmployeeCode,
         firstName,
         lastName,
         cellphone,
         department
       } = temp;
+      const employeeCode = normalizeEmployeeCode(rawEmployeeCode);
 
       const fullName = `${firstName} ${lastName}`;
       const userName = `${lastName}${firstName.charAt(0).toUpperCase()}`;// or generate however you prefer
@@ -611,7 +618,9 @@ exports.data = async (req, res) => {
       const today = new Date();
 
       // Check if the employee already exists
-      const existing = await Staff.findOne({ where: { EmployeeCode: employeeCode } });
+      const existing = await Staff.findOne({
+        where: normalizedEmployeeCodeWhere("EmployeeCode", employeeCode),
+      });
       if (existing) continue; // Skip existing entries
 
       await Staff.create({
@@ -643,91 +652,262 @@ exports.data = async (req, res) => {
   }
 };
 
+// exports.syncStaffFromContractData = async (req, res) => {
+//   console.log("Syncing staff from contract data...");
+//   try {
+//     const allContractData = await ContractData.findAll({
+//       attributes: [
+//     'employeeCode',
+//     'activeInactive',
+//     'surname',
+//     'fullNames',
+//     'joinedNameSurname',
+//     'position',
+//     'totalAirtimeAllowance',
+//     'cellNumber',
+//     'prePost',
+//   ],
+//     });
+
+//     for (const contract of allContractData) {
+//       let employeeCode = contract.employeeCode; // Might be null
+//       let allocationID;
+
+//       // Determine AllocationID based on totalAirtimeAllowance
+//       // const allowance = parseFloat(contract.totalAirtimeAllowance) || 0;
+//       // if (allowance === 2200) allocationID = 1;
+//       // else if (allowance === 3300) allocationID = 2;
+//       // else if (allowance === 4400) allocationID = 3;
+//       // else if (allowance === 8000) allocationID = 4;
+//       // else allocationID = null;
+
+// //       // Handle missing EmployeeCode
+// //       if (!employeeCode) {
+// //   // Generate a 6-character code using random letters and numbers
+// //   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+// //   let code = '';
+// //   for (let i = 0; i < 6; i++) {
+// //     code += chars.charAt(Math.floor(Math.random() * chars.length));
+// //   }
+// //   employeeCode = code;
+// // }
+
+//       // Extract first and last names
+//       const firstName = contract.fullNames?.split(" ")[0] || "";
+//       const lastName = contract.surname || "";
+
+//       // Generate username: LastName + first letter of FirstName (both capitalized)
+//       const username =
+//         lastName.charAt(0).toUpperCase() + lastName.slice(1).toLowerCase() +
+//         (firstName.charAt(0).toUpperCase() || "");
+
+//       // Check if employee exists
+//       let employee = await Staff.findOne({ where: { EmployeeCode: employeeCode } });
+//        // Update existing employee
+//         await employee.update({
+//           FullName = contract.joinedNameSurname
+//         });
+//       // if (employee) {
+//       //   // Update existing employee
+//       //   await employee.update({
+//       //     AllocationID: allocationID,
+//       //   });
+//       // } else {
+//       //   // Create new employee
+//       //   await Staff.create({
+//       //     EmployeeCode: contract.employeeCode || employeeCode,
+//       //     FirstName: contract.fullNames || firstName ||"MTC",
+//       //     LastName: contract.surname || lastName,
+//       //     FullName: contract.fullNames || ` ${firstName} ${lastName}` || "MTC Employee",
+//       //     Position: contract.position || "",
+//       //     AllocationID: allocationID || 1,
+//       //     UserName: username,
+//       //     RoleID: 3, // set default role if needed
+//       //     Gender: "", // set default role if needed
+//       //     Email: "", // placeholder
+//       //     PhoneNumber: contract.cellNumber || "",
+//       //     ServicePlan: contract.prePost || "Prepaid",
+//       //     Department: "",
+//       //     Position: contract.position || "",
+//       //     Division: null,
+//       //     EmploymentCategory: "Permanent", 
+//       //     EmploymentStatus: "Active",
+//       //   });
+//       // }
+//     }
+
+//     res.status(200).json({ message: "Staff records synced successfully with usernames." });
+//   } catch (error) {
+//     console.error("Error syncing staff:", error);
+//     res.status(500).json({ error: "An error occurred while syncing staff records." });
+//   }
+// };
 exports.syncStaffFromContractData = async (req, res) => {
-  console.log("Syncing staff from contract data...");
   try {
     const allContractData = await ContractData.findAll({
       attributes: [
-    'employeeCode',
-    'activeInactive',
-    'surname',
-    'fullNames',
-    'joinedNameSurname',
-    'position',
-    'totalAirtimeAllowance',
-    'cellNumber',
-    'prePost',
-  ],
+        "employeeCode",
+        "surname",
+        "fullNames",
+        "joinedNameSurname",
+      ],
     });
 
+    let updated = 0;
+    let skipped = 0;
+    let notFound = 0;
+
     for (const contract of allContractData) {
-      let employeeCode = contract.employeeCode; // Might be null
-      let allocationID;
-
-      // Determine AllocationID based on totalAirtimeAllowance
-      const allowance = parseFloat(contract.totalAirtimeAllowance) || 0;
-      if (allowance === 2200) allocationID = 1;
-      else if (allowance === 3300) allocationID = 2;
-      else if (allowance === 4400) allocationID = 3;
-      else if (allowance === 8000) allocationID = 4;
-      else allocationID = null;
-
-      // Handle missing EmployeeCode
+      const employeeCode = normalizeEmployeeCode(contract.employeeCode);
       if (!employeeCode) {
-  // Generate a 6-character code using random letters and numbers
-  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-  let code = '';
-  for (let i = 0; i < 6; i++) {
-    code += chars.charAt(Math.floor(Math.random() * chars.length));
-  }
-  employeeCode = code;
-}
-
-      // Extract first and last names
-      const firstName = contract.fullNames?.split(" ")[0] || "";
-      const lastName = contract.surname || "";
-
-      // Generate username: LastName + first letter of FirstName (both capitalized)
-      const username =
-        lastName.charAt(0).toUpperCase() + lastName.slice(1).toLowerCase() +
-        (firstName.charAt(0).toUpperCase() || "");
-
-      // Check if employee exists
-      let employee = await Staff.findOne({ where: { EmployeeCode: employeeCode } });
-
-      if (employee) {
-        // Update existing employee
-        await employee.update({
-          AllocationID: allocationID,
-        });
-      } else {
-        // Create new employee
-        await Staff.create({
-          EmployeeCode: contract.employeeCode || employeeCode,
-          FirstName: contract.fullNames || firstName ||"MTC",
-          LastName: contract.surname || lastName,
-          FullName: contract.fullNames || ` ${firstName} ${lastName}` || "MTC Employee",
-          Position: contract.position || "",
-          AllocationID: allocationID || 1,
-          UserName: username,
-          RoleID: 3, // set default role if needed
-          Gender: "", // set default role if needed
-          Email: "", // placeholder
-          PhoneNumber: contract.cellNumber || "",
-          ServicePlan: contract.prePost || "Prepaid",
-          Department: "",
-          Position: contract.position || "",
-          Division: null,
-          EmploymentCategory: "Permanent", 
-          EmploymentStatus: "Active",
-        });
+        skipped++;
+        continue;
       }
+
+      const fullName =
+        contract.joinedNameSurname?.trim() ||
+        contract.fullNames?.trim() ||
+        [contract.fullNames, contract.surname].filter(Boolean).join(" ").trim();
+
+      if (!fullName) {
+        skipped++;
+        continue;
+      }
+
+      const employee = await Staff.findOne({
+        where: normalizedEmployeeCodeWhere("EmployeeCode", employeeCode),
+      });
+      if (!employee) {
+        notFound++;
+        continue;
+      }
+
+      await employee.update({ FullName: fullName });
+      updated++;
     }
 
-    res.status(200).json({ message: "Staff records synced successfully with usernames." });
+    res.status(200).json({
+      message: "Staff FullName sync completed.",
+      updated,
+      skipped,
+      notFound,
+      total: allContractData.length,
+    });
   } catch (error) {
     console.error("Error syncing staff:", error);
     res.status(500).json({ error: "An error occurred while syncing staff records." });
+  }
+};
+
+function mapCdrGenderToStaff(gender) {
+  if (!gender) return null;
+  const value = String(gender).trim().toUpperCase();
+  if (value === "M" || value === "MALE" || value.startsWith("M -") || value.startsWith("M -")) return "Male";
+  if (value === "F" || value === "FEMALE" || value.startsWith("F -") || value.startsWith("F -")) return "Female";
+  return null;
+}
+
+function normalizeEmployeeCode(employeeCode) {
+  return String(employeeCode || "")
+    .trim()
+    .replace(/[-\s]/g, "")
+    .toUpperCase();
+}
+
+function normalizedEmployeeCodeSql(columnName) {
+  return `REPLACE(REPLACE(UPPER(${columnName}), '-', ''), ' ', '')`;
+}
+
+function normalizedEmployeeCodeWhere(columnName, employeeCode) {
+  return sequelize.where(
+    sequelize.fn(
+      "REPLACE",
+      sequelize.fn(
+        "REPLACE",
+        sequelize.fn("UPPER", sequelize.col(columnName)),
+        "-",
+        ""
+      ),
+      " ",
+      ""
+    ),
+    normalizeEmployeeCode(employeeCode)
+  );
+}
+
+exports.syncStaffFromCdrLiveEmployeeDetail = async (req, res) => {
+  try {
+    const cdrEmployees = await CdrLiveEmployeeDetail.findAll({
+      attributes: ["msisdn", "employee_code", "email", "gender", "division"],
+    });
+    const staffMembers = await Staff.findAll({
+      attributes: ["EmployeeCode"],
+    });
+    const staffByNormalizedEmployeeCode = new Map();
+
+    for (const staff of staffMembers) {
+      const normalizedCode = normalizeEmployeeCode(staff.EmployeeCode);
+      if (normalizedCode && !staffByNormalizedEmployeeCode.has(normalizedCode)) {
+        staffByNormalizedEmployeeCode.set(normalizedCode, staff);
+      }
+    }
+
+    let updated = 0;
+    let skipped = 0;
+    let notFound = 0;
+
+    for (const cdr of cdrEmployees) {
+      const employeeCode = normalizeEmployeeCode(cdr.employee_code);
+      if (!employeeCode) {
+        skipped++;
+        continue;
+      }
+
+      const staff = staffByNormalizedEmployeeCode.get(employeeCode);
+      if (!staff) {
+        notFound++;
+        continue;
+      }
+
+      const updatePayload = {};
+
+      if (cdr.msisdn?.trim()) {
+        updatePayload.PhoneNumber = cdr.msisdn.trim();
+      }
+      if (cdr.email?.trim()) {
+        updatePayload.Email = cdr.email.trim();
+      }
+
+      const gender = mapCdrGenderToStaff(cdr.gender);
+      if (gender) {
+        updatePayload.Gender = gender;
+      }
+
+      if (cdr.division?.trim()) {
+        updatePayload.Department = cdr.division.trim();
+      }
+
+      if (Object.keys(updatePayload).length === 0) {
+        skipped++;
+        continue;
+      }
+
+      await staff.update(updatePayload);
+      updated++;
+    }
+
+    res.status(200).json({
+      message: "Staff sync from CDR live employee detail completed.",
+      updated,
+      skipped,
+      notFound,
+      total: cdrEmployees.length,
+    });
+  } catch (error) {
+    logger.error("Error syncing staff from CDR employee detail:", error);
+    res.status(500).json({
+      error: "An error occurred while syncing staff from CDR employee detail.",
+    });
   }
 };
 
@@ -745,7 +925,7 @@ exports.syncStaffFromTempData = async (req, res) => {
     });
 
     for (const temp of allTempData) {
-      let employeeCode = temp.employeeCode;
+      let employeeCode = normalizeEmployeeCode(temp.employeeCode);
 
       // Handle missing EmployeeCode (generate 6-character code)
       if (!employeeCode) {
@@ -770,7 +950,9 @@ exports.syncStaffFromTempData = async (req, res) => {
       const allocationID = 1;
 
       // Check if employee exists
-      let employee = await Staff.findOne({ where: { EmployeeCode: employeeCode } });
+      let employee = await Staff.findOne({
+        where: normalizedEmployeeCodeWhere("EmployeeCode", employeeCode),
+      });
 
       if (employee) {
         // Update existing employee
@@ -1500,12 +1682,12 @@ exports.handsetDataV = async (req, res) => {
 
     for (const data of allHandsetData) {
       // 1. Get the Sub-Ledger value
-      const subLedger = data['Sub-Ledger'];
+      const subLedger = normalizeEmployeeCode(data['Sub-Ledger']);
 
       // 2. Find the corresponding staff member using the sub-ledger
       //    We assume Sub-Ledger from HandsetData corresponds to EmployeeCode in Staff
       const staffMember = await Staff.findOne({
-        where: { EmployeeCode: subLedger },
+        where: normalizedEmployeeCodeWhere("EmployeeCode", subLedger),
       });
 
       // 3. If a staff member is found, get their EmployeeCode and AllocationID

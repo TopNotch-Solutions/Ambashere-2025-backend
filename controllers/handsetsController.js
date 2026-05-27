@@ -10,6 +10,55 @@ const { sendEmail } = require("../middlewares/email");
 const { sendFinanceTeamEmail } = require("../middlewares/financeEmail");
 const { sendAdminEmail } = require("../middlewares/adminEmail");
 
+function normalizeEmployeeCode(employeeCode) {
+  return String(employeeCode || "")
+    .trim()
+    .replace(/[-\s]/g, "")
+    .toUpperCase();
+}
+
+function normalizedEmployeeCodeWhere(columnName, employeeCode) {
+  return sequelize.where(
+    sequelize.fn(
+      "REPLACE",
+      sequelize.fn(
+        "REPLACE",
+        sequelize.fn("UPPER", sequelize.col(columnName)),
+        "-",
+        ""
+      ),
+      " ",
+      ""
+    ),
+    normalizeEmployeeCode(employeeCode)
+  );
+}
+
+function normalizedEmployeeCodeSql(columnName) {
+  return `REPLACE(REPLACE(UPPER(${columnName}), '-', ''), ' ', '')`;
+}
+
+async function findStaffByEmployeeCode(employeeCode) {
+  return Staff.findOne({
+    where: normalizedEmployeeCodeWhere("EmployeeCode", employeeCode),
+  });
+}
+
+async function getStaffMapByEmployeeCodes(employeeCodes, attributes) {
+  const normalizedCodes = new Set(employeeCodes.map(normalizeEmployeeCode).filter(Boolean));
+  const employees = await Staff.findAll({ attributes });
+  const employeeMap = {};
+
+  employees.forEach((employee) => {
+    const normalizedCode = normalizeEmployeeCode(employee.EmployeeCode);
+    if (normalizedCodes.has(normalizedCode)) {
+      employeeMap[normalizedCode] = employee;
+    }
+  });
+
+  return employeeMap;
+}
+
 exports.getHandsets = async (req, res) => {
   try {
     const handsets = await CdrLiveEmployeeHandsetDetail.findAll();
@@ -25,10 +74,10 @@ exports.getHandsets = async (req, res) => {
 };
 
 exports.getHandsetsUser = async (req, res) => {
-  const employeeCode = req.params.employeeCode;
+  const employeeCode = normalizeEmployeeCode(req.params.employeeCode);
   try {
     const cdrHandsets = await CdrLiveEmployeeHandsetDetail.findAll({
-      where: { employee_code: employeeCode },
+      where: normalizedEmployeeCodeWhere("employee_code", employeeCode),
       order: [["renewal_date", "DESC"]],
     });
     const handsets = cdrHandsets.map((item) => ({
@@ -57,6 +106,7 @@ exports.getHandsetsUser = async (req, res) => {
 exports.updateById = async (req, res) => {
   const { id } = req.params;
   const { EmployeeCode, MRNumber, CollectionDate, status,FixedAssetCode } = req.body;
+  const normalizedEmployeeCode = normalizeEmployeeCode(EmployeeCode);
 
   if (!id) {
     return res.status(400).json({
@@ -103,22 +153,22 @@ exports.updateById = async (req, res) => {
     }
    if(status === "Approved"){
      await Notifications.create({
-        EmployeeCode: EmployeeCode,
+        EmployeeCode: normalizedEmployeeCode,
         Type: "Handset Approved",
         Message: `Your handset request has been approved!\n\nThe device is now assigned to you. Please note your renewal will be due in 2 years from the collection date (${new Date(CollectionDate).toLocaleDateString()}).`,
         Viewed: false,
         Created_At: new Date(),
-        RecipientEmployeeCode: EmployeeCode,
+        RecipientEmployeeCode: normalizedEmployeeCode,
       });
    }
    if (status === "Rejected") {
   await Notifications.create({
-    EmployeeCode: EmployeeCode,
+    EmployeeCode: normalizedEmployeeCode,
     Type: "Handset Rejected", // Changed from "Handset Approved"
     Message: `😔 Unfortunately, your recent handset request has been rejected. Please contact IT support for more details.`, // Updated message
     Viewed: false,
     Created_At: new Date(),
-    RecipientEmployeeCode: EmployeeCode,
+    RecipientEmployeeCode: normalizedEmployeeCode,
   });
 }
     return res.status(200).json({ message: "Handset updated successfully." });
@@ -153,10 +203,10 @@ exports.getAllocationsByEmployeeCode = async (req, res) => {
 }
 exports.getHandsetsByStaff = async (req, res) => {
   try {
-    const employeeCode = req.params.employeeCode;
+    const employeeCode = normalizeEmployeeCode(req.params.employeeCode);
 
     const cdrHandsets = await CdrLiveEmployeeHandsetDetail.findAll({
-      where: { employee_code: employeeCode },
+      where: normalizedEmployeeCodeWhere("employee_code", employeeCode),
       order: [["renewal_date", "DESC"]],
     });
 
@@ -204,21 +254,21 @@ exports.postHandset = async (req, res) => {
 
   console.log("Request body: ",req.body)
 
-   if (!EmployeeCode || !HandsetName || HandsetPrice === undefined || AccessFeePaid === undefined) {
+  const normalizedEmployeeCode = normalizeEmployeeCode(EmployeeCode);
+
+   if (!normalizedEmployeeCode || !HandsetName || HandsetPrice === undefined || AccessFeePaid === undefined) {
     return res.status(400).json({ message: "Please provide all required fields: EmployeeCode, HandsetName, HandsetPrice, AccessFeePaid." });
   }
   try{
     // Get staff information for notifications
-    const staff = await Staff.findOne({ where: { EmployeeCode } });
+    const staff = await findStaffByEmployeeCode(normalizedEmployeeCode);
     if (!staff) {
       return res.status(404).json({ message: "Staff member not found." });
     }
 
     // Check if user already has an existing handset record to determine RequestType
     const existingHandset = await Handsets.findOne({
-      where: { 
-        EmployeeCode: EmployeeCode,
-      },
+      where: normalizedEmployeeCodeWhere("EmployeeCode", normalizedEmployeeCode),
       order: [['RequestDate', 'DESC']] // Get the most recent one
     });
 
@@ -226,7 +276,7 @@ exports.postHandset = async (req, res) => {
     const isNewRequest = !existingHandset;
     const requestType = isNewRequest ? 'New' : 'Renewal';
     
-    console.log(`Handset request for ${EmployeeCode}: ${requestType} request (existing handset: ${existingHandset ? 'Yes' : 'No'})`);
+    console.log(`Handset request for ${normalizedEmployeeCode}: ${requestType} request (existing handset: ${existingHandset ? 'Yes' : 'No'})`);
 
     let cleanedHandsetPrice = typeof HandsetPrice === "string" ? HandsetPrice.slice(2) : HandsetPrice;
     cleanedHandsetPrice = parseFloat(cleanedHandsetPrice);
@@ -264,7 +314,7 @@ exports.postHandset = async (req, res) => {
     const withinLimitAtSubmit = !(submittedExcessAmount > 0);
 
     const newHandset = await Handsets.create({
-      EmployeeCode,
+      EmployeeCode: normalizedEmployeeCode,
       AllocationID: AllocationID || 1, // Use provided AllocationID or default to 1
       HandsetName,
       HandsetPrice: cleanedHandsetPrice,
@@ -299,7 +349,7 @@ exports.postHandset = async (req, res) => {
         const notification = await Notifications.create({
           EmployeeCode: financeMember.EmployeeCode,
           Type: "Handset Request - Finance Review",
-          Message: `${requestType} handset request submitted by ${staff.FullName} (${EmployeeCode})\n\nDevice: ${HandsetName}\nPrice: N$${cleanedHandsetPrice}\nAccess Fee: N$${AccessFeePaid}\nRequest Type: ${requestType}\nRequest Date: ${new Date().toLocaleDateString()}\n\nPlease review and process according to the handset procedure.`,
+          Message: `${requestType} handset request submitted by ${staff.FullName} (${normalizedEmployeeCode})\n\nDevice: ${HandsetName}\nPrice: N$${cleanedHandsetPrice}\nAccess Fee: N$${AccessFeePaid}\nRequest Type: ${requestType}\nRequest Date: ${new Date().toLocaleDateString()}\n\nPlease review and process according to the handset procedure.`,
           Viewed: false,
           Created_At: new Date(),
           RecipientEmployeeCode: financeMember.EmployeeCode,
@@ -309,10 +359,10 @@ exports.postHandset = async (req, res) => {
 
       // Send email to finance team using dedicated finance email service
       if (financeTeam.length > 0) {
-        const emailSubject = `${requestType} Handset Request - ${staff.FullName} (${EmployeeCode})`;
+        const emailSubject = `${requestType} Handset Request - ${staff.FullName} (${normalizedEmployeeCode})`;
         
         const handsetData = {
-          EmployeeCode,
+          EmployeeCode: normalizedEmployeeCode,
           HandsetName,
         HandsetPrice: cleanedHandsetPrice,
         AccessFeePaid,
@@ -340,12 +390,12 @@ exports.postHandset = async (req, res) => {
     }
 
     const userNotification = await Notifications.create({
-      EmployeeCode: EmployeeCode,
+      EmployeeCode: normalizedEmployeeCode,
       Type: "Handset Request Submitted",
       Message: userMessage,
       Viewed: false,
       Created_At: new Date(),
-      RecipientEmployeeCode: EmployeeCode,
+      RecipientEmployeeCode: normalizedEmployeeCode,
     });
 
     res.status(201).json({
@@ -472,7 +522,7 @@ exports.updateHandsetRequestStatus = async (req, res) => {
 
     // Get updated handset request
     const updatedRequest = await Handsets.findOne({ where: { id } });
-    const staff = await Staff.findOne({ where: { EmployeeCode: updatedRequest.EmployeeCode } });
+    const staff = await findStaffByEmployeeCode(updatedRequest.EmployeeCode);
 
     // Create appropriate notifications based on status change
     let notificationMessage = "";
@@ -588,16 +638,16 @@ exports.getPendingHandsetApprovals = async (req, res) => {
 
     // Get employee details separately
     const employeeCodes = [...new Set(requests.map(r => r.EmployeeCode))];
-    const employees = await Staff.findAll({
-      where: { EmployeeCode: employeeCodes },
-      attributes: ['EmployeeCode', 'FullName', 'Email', 'Department', 'Position', 'EmploymentCategory', 'EmploymentStatus', 'EmploymentStartDate']
-    });
-    
-    // Create a map for quick lookup
-    const employeeMap = {};
-    employees.forEach(emp => {
-      employeeMap[emp.EmployeeCode] = emp;
-    });
+    const employeeMap = await getStaffMapByEmployeeCodes(employeeCodes, [
+      'EmployeeCode',
+      'FullName',
+      'Email',
+      'Department',
+      'Position',
+      'EmploymentCategory',
+      'EmploymentStatus',
+      'EmploymentStartDate'
+    ]);
 
     // Process the data to match the frontend format and add verification context
     const processedRequests = requests.map((request) => {
@@ -607,7 +657,7 @@ exports.getPendingHandsetApprovals = async (req, res) => {
       const excess = withinLimit ? 0 : request.HandsetPrice - limit;
 
       // Get employee data
-      const employee = employeeMap[request.EmployeeCode];
+      const employee = employeeMap[normalizeEmployeeCode(request.EmployeeCode)];
 
       // Probation context for new requests
       let probationContext = null;
@@ -742,7 +792,7 @@ exports.verifyProbation = async (req, res) => {
     }
 
     // Get employee details for verification
-    const employee = await Staff.findByPk(handset.EmployeeCode);
+    const employee = await findStaffByEmployeeCode(handset.EmployeeCode);
     if (!employee) {
       return res.status(404).json({
         success: false,
@@ -903,7 +953,7 @@ exports.verifyRenewal = async (req, res) => {
     }
 
     // Get employee details
-    const employee = await Staff.findByPk(handset.EmployeeCode);
+    const employee = await findStaffByEmployeeCode(handset.EmployeeCode);
     if (!employee) {
       return res.status(404).json({
         success: false,
@@ -1156,7 +1206,7 @@ exports.shareIMEIWithAdmin = async (req, res) => {
     console.log(`IMEI ${imeiNumber} received for handset ${id} - storing in external system`);
 
     // Get employee details
-    const employee = await Staff.findByPk(handset.EmployeeCode);
+    const employee = await findStaffByEmployeeCode(handset.EmployeeCode);
     if (!employee) {
       return res.status(404).json({
         success: false,
@@ -1419,22 +1469,11 @@ exports.getRetailDeviceAllocations = async (req, res) => {
 
     // Get employee details separately to avoid association issues
     const employeeCodes = [...new Set(handsetsToProcess.map(h => h.EmployeeCode))];
-    const employees = await Staff.findAll({
-      where: {
-        EmployeeCode: employeeCodes
-      },
-      attributes: ['EmployeeCode', 'FullName', 'Email', 'Department', 'Position']
-    });
-
-    // Create a map for quick employee lookup
-    const employeeMap = {};
-    employees.forEach(emp => {
-      employeeMap[emp.EmployeeCode] = emp;
-    });
+    const employeeMap = await getStaffMapByEmployeeCodes(employeeCodes, ['EmployeeCode', 'FullName', 'Email', 'Department', 'Position']);
 
     // Process handsets for retail display - only "Renewal Verified" handsets are eligible
     const reservations = handsetsToProcess.map(handset => {
-      const employee = employeeMap[handset.EmployeeCode];
+      const employee = employeeMap[normalizeEmployeeCode(handset.EmployeeCode)];
       const isEligible = handset.Status === "Renewal Verified" && !handset.Reserved;
       const hasPaymentRequired = handset.ExcessAmount && handset.ExcessAmount > 0 && !handset.PaymentConfirmed;
       
@@ -1547,7 +1586,7 @@ exports.reserveHandset = async (req, res) => {
     });
 
     // Get employee details for notification
-    const employee = await Staff.findByPk(handset.EmployeeCode);
+    const employee = await findStaffByEmployeeCode(handset.EmployeeCode);
     
     // Create notification for employee
     if (employee) {
@@ -1645,7 +1684,7 @@ exports.issueIMEI = async (req, res) => {
     });
 
     // Get employee details for notification
-    const employee = await Staff.findByPk(handset.EmployeeCode);
+    const employee = await findStaffByEmployeeCode(handset.EmployeeCode);
     
     // Create notification for employee
     if (employee) {
@@ -1725,7 +1764,7 @@ exports.confirmPayment = async (req, res) => {
     });
 
     // Get employee details for notification
-    const employee = await Staff.findByPk(handset.EmployeeCode);
+    const employee = await findStaffByEmployeeCode(handset.EmployeeCode);
     
     // Create notification for employee
     if (employee) {
@@ -1853,22 +1892,11 @@ exports.getPendingPayments = async (req, res) => {
 
     // Get employee details separately
     const employeeCodes = [...new Set(handsets.map(h => h.EmployeeCode))];
-    const employees = await Staff.findAll({
-      where: {
-        EmployeeCode: employeeCodes
-      },
-      attributes: ['EmployeeCode', 'FullName', 'Email', 'Department', 'Position']
-    });
-
-    // Create employee map
-    const employeeMap = {};
-    employees.forEach(emp => {
-      employeeMap[emp.EmployeeCode] = emp;
-    });
+    const employeeMap = await getStaffMapByEmployeeCodes(employeeCodes, ['EmployeeCode', 'FullName', 'Email', 'Department', 'Position']);
 
     // Process handsets for display
     const pendingPayments = handsets.map(handset => {
-      const employee = employeeMap[handset.EmployeeCode];
+      const employee = employeeMap[normalizeEmployeeCode(handset.EmployeeCode)];
       
       return {
         id: handset.id,
@@ -1954,7 +1982,7 @@ exports.issueFixedAssetCode = async (req, res) => {
     });
 
     // Get employee details for notification
-    const employee = await Staff.findByPk(handset.EmployeeCode);
+    const employee = await findStaffByEmployeeCode(handset.EmployeeCode);
     
     // Create notification for employee
     if (employee) {
@@ -2079,22 +2107,11 @@ exports.getHandsetsForAssetCode = async (req, res) => {
 
     // Get employee details separately
     const employeeCodes = [...new Set(handsets.map(h => h.EmployeeCode))];
-    const employees = await Staff.findAll({
-      where: {
-        EmployeeCode: employeeCodes
-      },
-      attributes: ['EmployeeCode', 'FullName', 'Email', 'Department', 'Position']
-    });
-
-    // Create employee map
-    const employeeMap = {};
-    employees.forEach(emp => {
-      employeeMap[emp.EmployeeCode] = emp;
-    });
+    const employeeMap = await getStaffMapByEmployeeCodes(employeeCodes, ['EmployeeCode', 'FullName', 'Email', 'Department', 'Position']);
 
     // Process handsets for display
     const handsetsForAssetCode = handsets.map(handset => {
-      const employee = employeeMap[handset.EmployeeCode];
+      const employee = employeeMap[normalizeEmployeeCode(handset.EmployeeCode)];
       
       return {
         id: handset.id,
@@ -2158,22 +2175,11 @@ exports.getMyReservedDevices = async (req, res) => {
 
     // Get employee details separately
     const employeeCodes = [...new Set(reservedHandsets.map(h => h.EmployeeCode))];
-    const employees = await Staff.findAll({
-      where: {
-        EmployeeCode: employeeCodes
-      },
-      attributes: ['EmployeeCode', 'FullName', 'Email', 'Department', 'Position']
-    });
-
-    // Create employee map
-    const employeeMap = {};
-    employees.forEach(emp => {
-      employeeMap[emp.EmployeeCode] = emp;
-    });
+    const employeeMap = await getStaffMapByEmployeeCodes(employeeCodes, ['EmployeeCode', 'FullName', 'Email', 'Department', 'Position']);
 
     // Process reserved handsets for display
     const myReservations = reservedHandsets.map(handset => {
-      const employee = employeeMap[handset.EmployeeCode];
+      const employee = employeeMap[normalizeEmployeeCode(handset.EmployeeCode)];
       const hasPaymentRequired = handset.ExcessAmount && handset.ExcessAmount > 0 && !handset.PaymentConfirmed;
       
       return {
@@ -2268,7 +2274,7 @@ exports.assignMRNumber = async (req, res) => {
 
     // Get employee details for notifications
     const employee = await Staff.findOne({
-      where: { EmployeeCode: handset.EmployeeCode },
+      where: normalizedEmployeeCodeWhere("EmployeeCode", handset.EmployeeCode),
       attributes: ['EmployeeCode', 'Email', 'FullName']
     });
 
@@ -2403,22 +2409,11 @@ exports.getHandsetsForControlCard = async (req, res) => {
 
     // Get employee details separately
     const employeeCodes = [...new Set(handsets.map(h => h.EmployeeCode))];
-    const employees = await Staff.findAll({
-      where: {
-        EmployeeCode: employeeCodes
-      },
-      attributes: ['EmployeeCode', 'FullName', 'Email', 'Department', 'Position']
-    });
-
-    // Create employee map
-    const employeeMap = {};
-    employees.forEach(emp => {
-      employeeMap[emp.EmployeeCode] = emp;
-    });
+    const employeeMap = await getStaffMapByEmployeeCodes(employeeCodes, ['EmployeeCode', 'FullName', 'Email', 'Department', 'Position']);
 
     // Process handsets for display
     const handsetsForControlCard = handsets.map(handset => {
-      const employee = employeeMap[handset.EmployeeCode];
+      const employee = employeeMap[normalizeEmployeeCode(handset.EmployeeCode)];
       
       return {
         id: handset.id,
@@ -2495,7 +2490,7 @@ exports.getControlCardData = async (req, res) => {
 
     // Get employee details
     const employee = await Staff.findOne({
-      where: { EmployeeCode: handset.EmployeeCode },
+      where: normalizedEmployeeCodeWhere("EmployeeCode", handset.EmployeeCode),
       attributes: ['EmployeeCode', 'FullName', 'Email', 'Department', 'Position']
     });
 
@@ -2581,7 +2576,7 @@ exports.printControlCard = async (req, res) => {
 
     // Get employee details
     const employee = await Staff.findOne({
-      where: { EmployeeCode: handset.EmployeeCode },
+      where: normalizedEmployeeCodeWhere("EmployeeCode", handset.EmployeeCode),
       attributes: ['EmployeeCode', 'FullName', 'Email', 'Department', 'Position']
     });
 
@@ -2703,7 +2698,7 @@ exports.uploadCollectionProof = async (req, res) => {
 
     // Get employee details for notification
     const employee = await Staff.findOne({
-      where: { EmployeeCode: handset.EmployeeCode },
+      where: normalizedEmployeeCodeWhere("EmployeeCode", handset.EmployeeCode),
       attributes: ['EmployeeCode', 'Email', 'FullName']
     });
 

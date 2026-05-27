@@ -11,12 +11,42 @@ const Packages = require("../models/Packages");
 const ContractData = require("../models/contractData");
 const CdrLiveEmployeeContractDetails = require("../models/crdliveEmployeeContractDetail");
 
+function normalizeEmployeeCode(employeeCode) {
+  return String(employeeCode || "")
+    .trim()
+    .replace(/[-\s]/g, "")
+    .toUpperCase();
+}
+
+function normalizedEmployeeCodeSql(columnName) {
+  return `REPLACE(REPLACE(UPPER(${columnName}), '-', ''), ' ', '')`;
+}
+
+function normalizedEmployeeCodeWhere(columnName, employeeCode) {
+  return sequelize.where(
+    sequelize.fn(
+      "REPLACE",
+      sequelize.fn(
+        "REPLACE",
+        sequelize.fn("UPPER", sequelize.col(columnName)),
+        "-",
+        ""
+      ),
+      " ",
+      ""
+    ),
+    normalizeEmployeeCode(employeeCode)
+  );
+}
+
 exports.getContracts = async (req, res) => {
   try {
     const contracts = await sequelize.query(
       `SELECT c.*, e.FullName, e.EmploymentStatus
       FROM contracts c
-      INNER JOIN employees e ON c.EmployeeCode = e.EmployeeCode
+      INNER JOIN employees e
+        ON ${normalizedEmployeeCodeSql("c.EmployeeCode")} COLLATE utf8mb4_general_ci =
+           ${normalizedEmployeeCodeSql("e.EmployeeCode")} COLLATE utf8mb4_general_ci
       WHERE e.EmploymentStatus = 'Active'
        ORDER BY c.createdAt DESC`,
       { type: sequelize.QueryTypes.SELECT }
@@ -105,7 +135,9 @@ exports.getSingleContracts = async (req, res) => {
     const contracts = await sequelize.query(
       `SELECT c.*, e.FullName, e.EmploymentStatus
        FROM contracts c
-       INNER JOIN employees e ON c.EmployeeCode = e.EmployeeCode
+       INNER JOIN employees e
+        ON ${normalizedEmployeeCodeSql("c.EmployeeCode")} COLLATE utf8mb4_general_ci =
+           ${normalizedEmployeeCodeSql("e.EmployeeCode")} COLLATE utf8mb4_general_ci
        INNER JOIN packages p ON p.PackageID = c.PackageID
        WHERE c.ContractNumber = :contractId`,
       {
@@ -135,7 +167,9 @@ exports.getStaffContracts = async (req, res) => {
     const staffContracts = await sequelize.query(
       `SELECT c.*, e.FullName, e.EmploymentStatus, c.package AS PackageName
       FROM crdlive_employee_contract_details c
-      INNER JOIN employees e ON c.employee_code COLLATE utf8mb4_general_ci = e.EmployeeCode COLLATE utf8mb4_general_ci
+      INNER JOIN employees e
+        ON ${normalizedEmployeeCodeSql("c.employee_code")} COLLATE utf8mb4_general_ci =
+           ${normalizedEmployeeCodeSql("e.EmployeeCode")} COLLATE utf8mb4_general_ci
       WHERE e.EmploymentStatus = 'Active'
       ORDER BY c.createdAt DESC`,
       { type: sequelize.QueryTypes.SELECT }
@@ -154,7 +188,7 @@ exports.getStaffContracts = async (req, res) => {
 
 exports.getStaffContractById = async (req, res) => {
   try {
-    const employeeCode = req.params.employeeCode;
+    const employeeCode = normalizeEmployeeCode(req.params.employeeCode);
 
     const query = `SELECT
       c.*,
@@ -165,9 +199,10 @@ exports.getStaffContractById = async (req, res) => {
       a.AirtimeAllocation
       FROM crdlive_employee_contract_details c
       INNER JOIN employees e
-        ON c.employee_code COLLATE utf8mb4_general_ci = e.EmployeeCode COLLATE utf8mb4_general_ci
+        ON ${normalizedEmployeeCodeSql("c.employee_code")} COLLATE utf8mb4_general_ci =
+           ${normalizedEmployeeCodeSql("e.EmployeeCode")} COLLATE utf8mb4_general_ci
       INNER JOIN allocation a ON e.AllocationID = a.AllocationID
-      WHERE e.EmployeeCode COLLATE utf8mb4_general_ci = :employeeCode COLLATE utf8mb4_general_ci
+      WHERE ${normalizedEmployeeCodeSql("e.EmployeeCode")} COLLATE utf8mb4_general_ci = :employeeCode COLLATE utf8mb4_general_ci
       AND e.EmploymentStatus = 'Active'
        ORDER BY c.contract_end_date DESC
       `;
@@ -180,9 +215,10 @@ exports.getStaffContractById = async (req, res) => {
       (COALESCE(c.device_monthly_price, 0) + COALESCE(c.serviceplan_monthly_price, 0)) AS MonthlyPayment
       FROM crdlive_employee_contract_details c
       INNER JOIN employees e
-        ON c.employee_code COLLATE utf8mb4_general_ci = e.EmployeeCode COLLATE utf8mb4_general_ci
+        ON ${normalizedEmployeeCodeSql("c.employee_code")} COLLATE utf8mb4_general_ci =
+           ${normalizedEmployeeCodeSql("e.EmployeeCode")} COLLATE utf8mb4_general_ci
       INNER JOIN allocation a ON e.AllocationID = a.AllocationID
-      WHERE e.EmployeeCode COLLATE utf8mb4_general_ci = :employeeCode COLLATE utf8mb4_general_ci
+      WHERE ${normalizedEmployeeCodeSql("e.EmployeeCode")} COLLATE utf8mb4_general_ci = :employeeCode COLLATE utf8mb4_general_ci
       AND c.subscription_status = 'Active'
       AND e.EmploymentStatus = 'Active'
        ORDER BY c.contract_end_date DESC`;
@@ -195,7 +231,7 @@ exports.getStaffContractById = async (req, res) => {
 
     if (contracts.length === 0) {
       const tempDate = await Staff.findOne({
-        where: { EmployeeCode: employeeCode },
+        where: normalizedEmployeeCodeWhere("EmployeeCode", employeeCode),
       });
 
       if (!tempDate) {
@@ -246,11 +282,11 @@ exports.getStaffContractById = async (req, res) => {
 };
 exports.getTempContractById = async (req, res) => {
   try {
-    const employeeCode = req.params.employeeCode;
+    const employeeCode = normalizeEmployeeCode(req.params.employeeCode);
     console.log("Received request for employeeCode:", employeeCode);
 
     const tempDate = await Staff.findOne({
-      where: { EmployeeCode: employeeCode },
+      where: normalizedEmployeeCodeWhere("EmployeeCode", employeeCode),
     });
     console.log("Staff record found:", tempDate);
 
@@ -300,9 +336,10 @@ exports.createInitialContract = async (req, res) => {
       MSISDN,
       Packages, // This is the array of packages from the frontend
     } = req.body;
+    const normalizedEmployeeCode = normalizeEmployeeCode(EmployeeCode);
 
     // --- 1. Basic Validation ---
-    if (!EmployeeCode || !LimitCheck || !Packages || !Array.isArray(Packages) || Packages.length === 0) {
+    if (!normalizedEmployeeCode || !LimitCheck || !Packages || !Array.isArray(Packages) || Packages.length === 0) {
       return res.status(400).json({ message: "Missing required general contract fields or no packages provided." });
     }
 
@@ -319,7 +356,7 @@ exports.createInitialContract = async (req, res) => {
     for (const pkg of Packages) {
       // Validate essential fields for each package
       if (!pkg.PackageID || !pkg.SubscriptionStatus || pkg.AdjustedMonthlyPrice === undefined || !pkg.ContractDuration) {
-        logger.error(`Malformed package data received for EmployeeCode ${EmployeeCode}:`, pkg);
+        logger.error(`Malformed package data received for EmployeeCode ${normalizedEmployeeCode}:`, pkg);
         // Optionally, roll back any contracts already created in this loop
         return res.status(400).json({ message: `Invalid data for package ID ${pkg.PackageID || 'unknown'}.` });
       }
@@ -341,7 +378,7 @@ exports.createInitialContract = async (req, res) => {
 
 
       const contractDataForEntry = {
-        EmployeeCode: EmployeeCode,
+        EmployeeCode: normalizedEmployeeCode,
         PackageID: pkg.PackageID, // Specific PackageID for this entry
         MonthlyPayment: individualContractMonthlyPayment, // Specific monthly payment for this package+device
         LimitCheck: LimitCheck, // This might be constant across all entries in one submission
@@ -378,7 +415,7 @@ exports.createInitialContract = async (req, res) => {
 };
 
 exports.createExistingData = async (req, res) => {
-  if (req.body['Employee Code'] === "") {
+  if (!normalizeEmployeeCode(req.body['Employee Code'])) {
     return res.status(400).json({ message: "Please enter employee code" });
   }
 
@@ -391,7 +428,7 @@ exports.createExistingData = async (req, res) => {
       value === "" || value == null ? null : String(value).trim();
 
     const mappedData = {
-      employeeCode: toStringOrNull(body['Employee Code']),
+      employeeCode: normalizeEmployeeCode(body['Employee Code']),
       activeInactive: toStringOrNull(body['Active/Inactive']),
       surname: toStringOrNull(body['Surname']),
       fullNames: toStringOrNull(body['Full Names']),
@@ -473,13 +510,15 @@ exports.getPendingContracts = async (req, res) => {
 };
 
 exports.getPendingEmployeeContracts = async (req, res) => {
-  const { employeeCode } = req.params;
+  const employeeCode = normalizeEmployeeCode(req.params.employeeCode);
   try {
     // Fetch the latest pending contract for the employee based on the ContractNumber
     const latestPendingContract = await Contract.findOne({
       where: {
-        EmployeeCode: employeeCode,
-        ApprovalStatus: "Pending",
+        [Op.and]: [
+          normalizedEmployeeCodeWhere("EmployeeCode", employeeCode),
+          { ApprovalStatus: "Pending" },
+        ],
       },
       order: [["ContractNumber", "DESC"]], // Sort by ContractNumber in descending order
     });
@@ -510,15 +549,20 @@ exports.createContract = async (req, res) => {
       MSISDN, // Admin provides this based on user request
       SubscriptionStatus,
     } = req.body;
+    const normalizedEmployeeCode = normalizeEmployeeCode(EmployeeCode);
 
     // If contract is created by user, save initial contract data
     if (!isCreatedByAdmin) {
       return exports.createInitialContract(req, res);
     }
 
+    if (!normalizedEmployeeCode) {
+      return res.status(400).json({ message: "EmployeeCode is required." });
+    }
+
     // If contract is created by admin, save complete contract data
     let newContractData = {
-      EmployeeCode,
+      EmployeeCode: normalizedEmployeeCode,
       PackageID,
       MonthlyPayment,
       LimitCheck,
@@ -576,7 +620,7 @@ exports.finalizeContract = async (req, res) => {
 
     // Create the final contract with all details
     const finalContract = await Contract.create({
-      EmployeeCode: initialData.EmployeeCode,
+      EmployeeCode: normalizeEmployeeCode(initialData.EmployeeCode),
       PackageID: initialData.PackageID,
       MonthlyPayment: initialData.MonthlyPayment,
       LimitCheck: initialData.LimitCheck,
@@ -604,7 +648,7 @@ exports.finalizeContract = async (req, res) => {
   }
 };
 exports.updateExistingData = async (req, res) => {
-  if (req.body['Employee Code'] === "") {
+  if (!normalizeEmployeeCode(req.body['Employee Code'])) {
     return res.status(400).json({ message: "Please enter employee code" });
   }
   try{
@@ -615,7 +659,7 @@ exports.updateExistingData = async (req, res) => {
     const toStringOrNull = (value) =>
       value === "" || value == null ? null : String(value).trim();
     const mappedData = {
-      employeeCode: toStringOrNull(body['Employee Code']),
+      employeeCode: normalizeEmployeeCode(body['Employee Code']),
       activeInactive: toStringOrNull(body['Active/Inactive']),
       surname: toStringOrNull(body['Surname']),
       fullNames: toStringOrNull(body['Full Names']),

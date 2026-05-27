@@ -34,6 +34,7 @@ router.get("/allocation/handset/:id", checkAllUsers,  staffController.getStaffWi
 router.get("/:id", checkAdmin,  staffController.getStaffById);
 
 router.post("/updateEmployeeData",staffController.syncStaffFromContractData);
+router.post("/updateCdrEmployeeData", staffController.syncStaffFromCdrLiveEmployeeDetail);
 router.post("/updateTempData",staffController.syncStaffFromTempData);
 router.post("/updateDPSGEP", staffController.syncDPSGEPData);
 router.post("/updateTempAllocation", staffController.syncTempAllocationData);

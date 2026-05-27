@@ -4,6 +4,13 @@ const pdfParse = require("pdf-parse");
 const db = require("../config/database");
 const logger = require("../middlewares/errorLogger");
 
+function normalizeEmployeeCode(employeeCode) {
+  return String(employeeCode || "")
+    .trim()
+    .replace(/[-\s]/g, "")
+    .toUpperCase();
+}
+
 // Configure multer to accept Excel and PDF files
 const storage = multer.memoryStorage();
 const uploadMiddleware = multer({
@@ -130,6 +137,10 @@ const insertDataIntoDatabase = async (data, columnNames, res) => {
     if (Object.keys(mappedColumns).length === 0) {
       console.error("No valid data found for row:", row);
       continue;
+    }
+
+    if (mappedColumns.EmployeeCode) {
+      mappedColumns.EmployeeCode = normalizeEmployeeCode(mappedColumns.EmployeeCode);
     }
 
     const columns = Object.keys(mappedColumns);
