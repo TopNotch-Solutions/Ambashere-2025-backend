@@ -182,7 +182,7 @@ cron.schedule(HOURLY_CRON, async () => {
 //   }
 // });
 
-cron.schedule('*/1 * * * *', async () => {
+cron.schedule('0 8,14 * * *', async () => {
   const transaction = await sequelize.transaction();
 
   try {
@@ -232,7 +232,7 @@ cron.schedule('*/1 * * * *', async () => {
   }
 });
 
-cron.schedule("*/1 * * * *", async () => {
+cron.schedule('0 8,14 * * *', async () => {
   const transaction = await sequelize.transaction();
 
   try {
@@ -297,7 +297,7 @@ cron.schedule("*/1 * * * *", async () => {
   }
 });
 
-cron.schedule("*/1 * * * *", async () => {
+cron.schedule('0 8,14 * * *', async () => {
   const transaction = await sequelize.transaction();
 
   try {
@@ -366,7 +366,7 @@ cron.schedule("*/1 * * * *", async () => {
   }
 });
 
-cron.schedule("*/1 * * * *", async () => {
+cron.schedule('0 8,14 * * *', async () => {
   const transaction = await sequelize.transaction();
 
   try {
