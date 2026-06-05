@@ -45,7 +45,7 @@ const app = express();
 const server = http.createServer(app); // Create HTTP server
 const io = socketIo(server, {
   cors: {
-    origin: ["http://localhost:3000", "http://mtcprdstaffapp01.mtcdc.com.na"],
+    origin: ["http://localhost:3000", "https://amberspherebackend.mtc.com.na", "http://mtcprdstaffapp01.mtcdc.com.na"],
     methods: ["GET", "POST", "PUT", "DELETE"],
     allowedHeaders: ['Content-Type', 'Authorization'],
     credentials: true,
@@ -66,7 +66,7 @@ app.use(cookieParser());
 
 app.use(
   cors({
-    origin: ["http://localhost:3000","http://mtcprdstaffapp01.mtcdc.com.na"],
+    origin: ["http://localhost:3000","https://amberspherebackend.mtc.com.na","http://mtcprdstaffapp01.mtcdc.com.na"],
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allowedHeaders: ['Content-Type', 'Authorization'],
     credentials: true,
