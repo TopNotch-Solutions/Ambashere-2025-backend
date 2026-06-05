@@ -42,6 +42,7 @@ const CdrLiveEmployeeDetail = require("./models/crdliveEmployeeDetail");
 const CdrLiveEmployeeHandsetDetail = require("./models/crdliveEmployeeHandsetDetail");
 
 const app = express();
+app.set('trust proxy', true);
 const server = http.createServer(app); // Create HTTP server
 const io = socketIo(server, {
   cors: {
