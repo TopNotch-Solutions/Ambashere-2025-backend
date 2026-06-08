@@ -19,14 +19,14 @@ const Notifications = sequelize.define(
       },
     },
     Type: {
-      type: DataTypes.STRING,
+      type: DataTypes.STRING(100),
       allowNull: false,
     },
     Message: {
       type: DataTypes.TEXT,
       allowNull: false,
       validate: {
-        len: [1, 255], // Example validation: limit message length
+        notEmpty: true,
       },
     },
     Viewed: {

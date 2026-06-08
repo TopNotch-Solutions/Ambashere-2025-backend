@@ -11,9 +11,11 @@ const morgan = require("morgan");
 const logger = require("./middlewares/errorLogger");
 const errorHandler = require("./middlewares/errorHandlerMiddleware");
 const path = require("path");
+const fetch = require("node-fetch");
 
 require("dotenv").config();
 const { tokenAuthMiddleware } = require("./middlewares/authMiddleware");
+
 
 // Routes
 const authRoutes = require("./routes/authRoutes");
@@ -46,7 +48,7 @@ app.set('trust proxy', true);
 const server = http.createServer(app); // Create HTTP server
 const io = socketIo(server, {
   cors: {
-    origin: ["http://localhost:3000", "https://ambersphere.mtc.com.na", "https://ambasphere.mtc.com.na"],
+    origin: ["http://localhost:3000", "https://ambasphereuat.mtc.com.na", "https://ambasphere.mtc.com.na"],
     methods: ["GET", "POST", "PUT", "DELETE"],
     allowedHeaders: ['Content-Type', 'Authorization'],
     credentials: true,
@@ -67,7 +69,7 @@ app.use(cookieParser());
 
 app.use(
   cors({
-    origin: ["http://localhost:3000","https://ambersphere.mtc.com.na","https://ambasphere.mtc.com.na"],
+    origin: ["http://localhost:3000","https://ambasphereuat.mtc.com.na","https://ambasphere.mtc.com.na"],
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allowedHeaders: ['Content-Type', 'Authorization'],
     credentials: true,
