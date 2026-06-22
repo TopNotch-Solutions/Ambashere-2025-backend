@@ -139,9 +139,9 @@ cron.schedule("0 1 14 * *", async () => {
   }
 });
 
-// Testing: every minute. Restore "0 * * * *" for production.
+// Renewal notifications: once daily at 09:00
 const RENEWAL_NOTIFICATION_CRON =
-  process.env.RENEWAL_NOTIFICATION_CRON || "*/1 * * * *";
+  process.env.RENEWAL_NOTIFICATION_CRON || "0 9 * * *";
 
 cron.schedule(RENEWAL_NOTIFICATION_CRON, async () => {
   try {
@@ -175,10 +175,9 @@ cron.schedule(RENEWAL_NOTIFICATION_CRON, async () => {
   }
 });
 
-// Notification emails: test mode sends only to PWilhelm@mtc.com.na (see notificationEmailConfig.js)
-// Testing: every minute. Restore "0 * * * *" for production.
+// Notification emails: once daily at 09:00 (test mode → PWilhelm@mtc.com.na)
 const NOTIFICATION_EMAIL_CRON =
-  process.env.NOTIFICATION_EMAIL_CRON || "*/1 * * * *";
+  process.env.NOTIFICATION_EMAIL_CRON || "0 9 * * *";
 
 cron.schedule(NOTIFICATION_EMAIL_CRON, async () => {
   try {

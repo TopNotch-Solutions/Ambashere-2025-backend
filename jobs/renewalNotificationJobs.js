@@ -13,7 +13,7 @@ const {
 const STAFF_PORTAL_URL =
   process.env.STAFF_PORTAL_URL ||
   process.env.FRONTEND_URL ||
-  "http://mtcprdstaffapp01.mtcdc.com.na";
+  "https://ambasphere.mtc.com.na/";
 
 const NOTIFICATION_TYPES = {
   HANDSET_WEEK: "Handset Benefit: Something shiny is coming in 7 days...",

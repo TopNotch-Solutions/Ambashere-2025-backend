@@ -13,21 +13,12 @@ const transporter = nodemailer.createTransport({
   },
 });
 
-const BANNER_PATH = path.join(
-  __dirname,
-  "../public/images/11960-Ambasphere-Gallery-Banner.png"
-);
 const LOGO_PATH = path.join(
   __dirname,
   "../public/images/Ambasphere-Logo@2x.png"
 );
 
 const EMAIL_ATTACHMENTS = [
-  {
-    filename: "ambasphere-banner.png",
-    path: BANNER_PATH,
-    cid: "ambasphere-banner",
-  },
   {
     filename: "ambasphere-logo.png",
     path: LOGO_PATH,
@@ -69,11 +60,6 @@ function buildNotificationEmailHtml({ subject, message, intendedRecipientLabel }
     <tr>
       <td align="center">
         <table role="presentation" width="600" cellspacing="0" cellpadding="0" style="max-width: 600px; width: 100%; background-color: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08);">
-          <tr>
-            <td style="padding: 0; line-height: 0;">
-              <img src="cid:ambasphere-banner" alt="Ambasphere" width="600" style="display: block; width: 100%; max-width: 600px; height: auto; border: 0;" />
-            </td>
-          </tr>
           <tr>
             <td style="padding: 28px 32px 8px 32px; text-align: center;">
               <img src="cid:ambasphere-logo" alt="Ambasphere Logo" width="180" style="display: inline-block; width: 180px; max-width: 100%; height: auto; border: 0;" />
