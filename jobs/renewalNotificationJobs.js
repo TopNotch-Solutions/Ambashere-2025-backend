@@ -2,8 +2,13 @@ const { Op } = require("sequelize");
 const sequelize = require("../config/database");
 const logger = require("../middlewares/errorLogger");
 const Notifications = require("../models/Notifications");
+const Staff = require("../models/Staff");
 const CdrLiveEmployeeHandsetDetail = require("../models/crdliveEmployeeHandsetDetail");
 const CdrLiveEmployeeContractDetails = require("../models/crdliveEmployeeContractDetail");
+const {
+  NOTIFICATION_EMAIL_TEST_ONLY,
+  TEST_NOTIFICATION_OWNER_CODE,
+} = require("./notificationEmailConfig");
 
 const STAFF_PORTAL_URL =
   process.env.STAFF_PORTAL_URL ||
@@ -99,16 +104,39 @@ async function wasNotificationSent(employeeCode, type, since, transaction) {
   return count > 0;
 }
 
-async function createNotification(employeeCode, type, message, transaction) {
+async function resolveNotificationOwnerCode(recipientEmployeeCode) {
+  if (NOTIFICATION_EMAIL_TEST_ONLY) {
+    return TEST_NOTIFICATION_OWNER_CODE;
+  }
+
+  const staff = await Staff.findOne({
+    where: { EmployeeCode: recipientEmployeeCode },
+    attributes: ["EmployeeCode"],
+  });
+
+  if (!staff) {
+    throw new Error(
+      `Employee ${recipientEmployeeCode} not found in employees table`
+    );
+  }
+
+  return recipientEmployeeCode;
+}
+
+async function createNotification(recipientEmployeeCode, type, message, transaction) {
+  const ownerEmployeeCode = await resolveNotificationOwnerCode(
+    recipientEmployeeCode
+  );
+
   return Notifications.create(
     {
-      EmployeeCode: employeeCode,
+      EmployeeCode: ownerEmployeeCode,
       Type: type,
       Message: message,
       Viewed: false,
       EmailSent: false,
       Created_At: new Date(),
-      RecipientEmployeeCode: employeeCode,
+      RecipientEmployeeCode: recipientEmployeeCode,
     },
     { transaction }
   );
@@ -156,10 +184,12 @@ async function expireContractAndNotifyIfAbsent(contract, message, since) {
       return false;
     }
 
-    await CdrLiveEmployeeContractDetails.update(
-      { subscription_status: "Expired" },
-      { where: { id: contract.id, subscription_status: "Active" }, transaction }
-    );
+    if (!NOTIFICATION_EMAIL_TEST_ONLY) {
+      await CdrLiveEmployeeContractDetails.update(
+        { subscription_status: "Expired" },
+        { where: { id: contract.id, subscription_status: "Active" }, transaction }
+      );
+    }
 
     await createNotification(
       contract.employee_code,

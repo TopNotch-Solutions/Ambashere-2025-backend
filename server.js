@@ -66,6 +66,7 @@ app.use(bodyParser.json({ limit: "50mb" }));
 app.use(bodyParser.urlencoded({ limit: "50mb", extended: true }));
 
 app.use(cookieParser());
+app.use(express.static("public"));
 
 app.use(
   cors({
@@ -138,9 +139,11 @@ cron.schedule("0 1 14 * *", async () => {
   }
 });
 
-const HOURLY_CRON = "0 * * * *";
+// Testing: every minute. Restore "0 * * * *" for production.
+const RENEWAL_NOTIFICATION_CRON =
+  process.env.RENEWAL_NOTIFICATION_CRON || "*/1 * * * *";
 
-cron.schedule(HOURLY_CRON, async () => {
+cron.schedule(RENEWAL_NOTIFICATION_CRON, async () => {
   try {
     await processHandsetWeekRenewals();
   } catch (error) {
@@ -148,7 +151,7 @@ cron.schedule(HOURLY_CRON, async () => {
   }
 });
 
-cron.schedule(HOURLY_CRON, async () => {
+cron.schedule(RENEWAL_NOTIFICATION_CRON, async () => {
   try {
     await processHandsetRenewalsDueToday();
   } catch (error) {
@@ -156,7 +159,7 @@ cron.schedule(HOURLY_CRON, async () => {
   }
 });
 
-cron.schedule(HOURLY_CRON, async () => {
+cron.schedule(RENEWAL_NOTIFICATION_CRON, async () => {
   try {
     await processContractWeekRenewals();
   } catch (error) {
@@ -164,7 +167,7 @@ cron.schedule(HOURLY_CRON, async () => {
   }
 });
 
-cron.schedule(HOURLY_CRON, async () => {
+cron.schedule(RENEWAL_NOTIFICATION_CRON, async () => {
   try {
     await processContractsExpiringToday();
   } catch (error) {
@@ -172,18 +175,18 @@ cron.schedule(HOURLY_CRON, async () => {
   }
 });
 
-// Notification emails → PWilhelm@mtc.com.na (see notificationEmailJobs.js)
-// Default: every minutes. For rapid testing: NOTIFICATION_EMAIL_CRON="* * * * * *" (every second)
-// const NOTIFICATION_EMAIL_CRON =
-//   process.env.NOTIFICATION_EMAIL_CRON || "*/1 * * * *";
+// Notification emails: test mode sends only to PWilhelm@mtc.com.na (see notificationEmailConfig.js)
+// Testing: every minute. Restore "0 * * * *" for production.
+const NOTIFICATION_EMAIL_CRON =
+  process.env.NOTIFICATION_EMAIL_CRON || "*/1 * * * *";
 
-// cron.schedule(NOTIFICATION_EMAIL_CRON, async () => {
-//   try {
-//     await processNotificationEmails();
-//   } catch (error) {
-//     logger.error("Notification email cron failed:", error);
-//   }
-// });
+cron.schedule(NOTIFICATION_EMAIL_CRON, async () => {
+  try {
+    await processNotificationEmails();
+  } catch (error) {
+    logger.error("Notification email cron failed:", error);
+  }
+});
 
 cron.schedule('0 8,14 * * *', async () => {
   const transaction = await sequelize.transaction();

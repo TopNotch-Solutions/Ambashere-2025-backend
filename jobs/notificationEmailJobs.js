@@ -4,8 +4,10 @@ const logger = require("../middlewares/errorLogger");
 const Notifications = require("../models/Notifications");
 const Staff = require("../models/Staff");
 const { sendNotificationEmail } = require("../middlewares/notificationEmail");
-
-const NOTIFICATION_EMAIL_RECIPIENT = "PWilhelm@mtc.com.na";
+const {
+  NOTIFICATION_EMAIL_RECIPIENT,
+  NOTIFICATION_EMAIL_TEST_ONLY,
+} = require("./notificationEmailConfig");
 
 const BATCH_SIZE = 20;
 const queryOptions = { logging: false };
@@ -22,6 +24,20 @@ async function getIntendedRecipientLabel(employeeCode) {
   }
 
   return `${staff.FullName} (${staff.Email})`;
+}
+
+async function resolveProductionRecipient(employeeCode) {
+  const staff = await Staff.findOne({
+    where: { EmployeeCode: employeeCode },
+    attributes: ["Email"],
+    ...queryOptions,
+  });
+
+  if (!staff?.Email) {
+    throw new Error(`No email address for employee ${employeeCode}`);
+  }
+
+  return staff.Email;
 }
 
 /**
@@ -98,15 +114,27 @@ async function processNotificationEmails() {
       );
 
       try {
+        const emailRecipient = NOTIFICATION_EMAIL_TEST_ONLY
+          ? NOTIFICATION_EMAIL_RECIPIENT
+          : await resolveProductionRecipient(
+              notification.RecipientEmployeeCode
+            );
+
         await sendNotificationEmail({
-          to: NOTIFICATION_EMAIL_RECIPIENT,
+          to: emailRecipient,
           subject: notification.Type,
           message: notification.Message,
-          intendedRecipientLabel,
+          intendedRecipientLabel: NOTIFICATION_EMAIL_TEST_ONLY
+            ? intendedRecipientLabel
+            : undefined,
         });
 
         logger.info(
-          `Notification email sent to ${NOTIFICATION_EMAIL_RECIPIENT} (notification ${notificationId})`
+          `Notification email sent to ${emailRecipient}` +
+            (NOTIFICATION_EMAIL_TEST_ONLY
+              ? ` (test mode — intended for ${intendedRecipientLabel})`
+              : "") +
+            ` (notification ${notificationId})`
         );
       } catch (emailError) {
         await releaseNotificationEmailClaim(notificationId);
