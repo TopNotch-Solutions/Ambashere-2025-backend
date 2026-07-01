@@ -2,22 +2,21 @@ const { Op } = require("sequelize");
 const sequelize = require("../config/database");
 const logger = require("../middlewares/errorLogger");
 const Notifications = require("../models/Notifications");
-const Staff = require("../models/Staff");
 const { sendNotificationEmail } = require("../middlewares/notificationEmail");
 const {
   NOTIFICATION_EMAIL_RECIPIENT,
   NOTIFICATION_EMAIL_TEST_ONLY,
 } = require("./notificationEmailConfig");
+const { NOTIFICATION_TYPES } = require("./renewalNotificationJobs");
+const { findStaffByEmployeeCode } = require("../utils/employeeCode");
+
+const RENEWAL_NOTIFICATION_TYPE_VALUES = Object.values(NOTIFICATION_TYPES);
 
 const BATCH_SIZE = 20;
 const queryOptions = { logging: false };
 
 async function getIntendedRecipientLabel(employeeCode) {
-  const staff = await Staff.findOne({
-    where: { EmployeeCode: employeeCode },
-    attributes: ["FullName", "Email"],
-    ...queryOptions,
-  });
+  const staff = await findStaffByEmployeeCode(employeeCode);
 
   if (!staff) {
     return `${employeeCode} (email not found)`;
@@ -27,11 +26,7 @@ async function getIntendedRecipientLabel(employeeCode) {
 }
 
 async function resolveProductionRecipient(employeeCode) {
-  const staff = await Staff.findOne({
-    where: { EmployeeCode: employeeCode },
-    attributes: ["Email"],
-    ...queryOptions,
-  });
+  const staff = await findStaffByEmployeeCode(employeeCode);
 
   if (!staff?.Email) {
     throw new Error(`No email address for employee ${employeeCode}`);
@@ -92,6 +87,7 @@ async function processNotificationEmails() {
   const pending = await Notifications.findAll({
     where: {
       EmailSent: false,
+      Type: { [Op.in]: RENEWAL_NOTIFICATION_TYPE_VALUES },
     },
     order: [["Created_At", "ASC"]],
     limit: BATCH_SIZE,

@@ -175,9 +175,9 @@ cron.schedule(RENEWAL_NOTIFICATION_CRON, async () => {
   }
 });
 
-// Notification emails: once daily at 09:00 (test mode → PWilhelm@mtc.com.na)
+// Notification emails: once daily at 09:05 (after renewal notifications at 09:00)
 const NOTIFICATION_EMAIL_CRON =
-  process.env.NOTIFICATION_EMAIL_CRON || "0 9 * * *";
+  process.env.NOTIFICATION_EMAIL_CRON || "5 9 * * *";
 
 cron.schedule(NOTIFICATION_EMAIL_CRON, async () => {
   try {
