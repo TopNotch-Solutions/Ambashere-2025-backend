@@ -2,17 +2,13 @@ const { Op } = require("sequelize");
 const sequelize = require("../config/database");
 const logger = require("../middlewares/errorLogger");
 const Notifications = require("../models/Notifications");
+const Staff = require("../models/Staff");
 const CdrLiveEmployeeHandsetDetail = require("../models/crdliveEmployeeHandsetDetail");
 const CdrLiveEmployeeContractDetails = require("../models/crdliveEmployeeContractDetail");
 const {
   NOTIFICATION_EMAIL_TEST_ONLY,
   TEST_NOTIFICATION_OWNER_CODE,
 } = require("./notificationEmailConfig");
-const {
-  normalizedEmployeeCodeWhere,
-  findStaffByEmployeeCode,
-  resolveEmployeeCodeFromCdrLive,
-} = require("../utils/employeeCode");
 
 const STAFF_PORTAL_URL =
   process.env.STAFF_PORTAL_URL ||
@@ -99,11 +95,9 @@ function addDays(date, days) {
 async function wasNotificationSent(employeeCode, type, since, transaction) {
   const count = await Notifications.count({
     where: {
-      [Op.and]: [
-        normalizedEmployeeCodeWhere("RecipientEmployeeCode", employeeCode),
-        { Type: type },
-        { Created_At: { [Op.gte]: since } },
-      ],
+      RecipientEmployeeCode: employeeCode,
+      Type: type,
+      Created_At: { [Op.gte]: since },
     },
     transaction,
   });
@@ -115,7 +109,10 @@ async function resolveNotificationOwnerCode(recipientEmployeeCode) {
     return TEST_NOTIFICATION_OWNER_CODE;
   }
 
-  const staff = await findStaffByEmployeeCode(recipientEmployeeCode);
+  const staff = await Staff.findOne({
+    where: { EmployeeCode: recipientEmployeeCode },
+    attributes: ["EmployeeCode"],
+  });
 
   if (!staff) {
     throw new Error(
@@ -123,7 +120,7 @@ async function resolveNotificationOwnerCode(recipientEmployeeCode) {
     );
   }
 
-  return staff.EmployeeCode;
+  return recipientEmployeeCode;
 }
 
 async function createNotification(recipientEmployeeCode, type, message, transaction) {
@@ -173,18 +170,10 @@ async function createNotificationIfAbsent(employeeCode, type, message, since) {
 }
 
 async function expireContractAndNotifyIfAbsent(contract, message, since) {
-  const employeeCode = await resolveEmployeeCodeFromCdrLive(contract.employee_code);
-  if (!employeeCode) {
-    logger.warn(
-      `Contract same-day notification skipped: no employees match for crdlive code ${contract.employee_code}`
-    );
-    return false;
-  }
-
   const transaction = await sequelize.transaction();
   try {
     const alreadySent = await wasNotificationSent(
-      employeeCode,
+      contract.employee_code,
       NOTIFICATION_TYPES.CONTRACT_TODAY,
       since,
       transaction
@@ -203,7 +192,7 @@ async function expireContractAndNotifyIfAbsent(contract, message, since) {
     }
 
     await createNotification(
-      employeeCode,
+      contract.employee_code,
       NOTIFICATION_TYPES.CONTRACT_TODAY,
       message,
       transaction
@@ -236,20 +225,10 @@ async function processHandsetWeekRenewals() {
 
   for (const handset of approachingRenewals) {
     try {
-      const employeeCode = await resolveEmployeeCodeFromCdrLive(
-        handset.employee_code
-      );
-      if (!employeeCode) {
-        logger.warn(
-          `Handset 7-day notification skipped: no employees match for crdlive code ${handset.employee_code}`
-        );
-        continue;
-      }
-
       const employeeName = getEmployeeName(handset);
 
       await createNotificationIfAbsent(
-        employeeCode,
+        handset.employee_code,
         NOTIFICATION_TYPES.HANDSET_WEEK,
         buildHandsetWeekMessage(employeeName, handset.renewal_date),
         sevenDaysStart
@@ -278,20 +257,10 @@ async function processHandsetRenewalsDueToday() {
 
   for (const handset of dueTodayHandsets) {
     try {
-      const employeeCode = await resolveEmployeeCodeFromCdrLive(
-        handset.employee_code
-      );
-      if (!employeeCode) {
-        logger.warn(
-          `Handset same-day notification skipped: no employees match for crdlive code ${handset.employee_code}`
-        );
-        continue;
-      }
-
       const employeeName = getEmployeeName(handset);
 
       await createNotificationIfAbsent(
-        employeeCode,
+        handset.employee_code,
         NOTIFICATION_TYPES.HANDSET_TODAY,
         buildHandsetTodayMessage(employeeName, STAFF_PORTAL_URL),
         todayStart
@@ -319,18 +288,8 @@ async function processContractWeekRenewals() {
 
   for (const contract of approachingEnd) {
     try {
-      const employeeCode = await resolveEmployeeCodeFromCdrLive(
-        contract.employee_code
-      );
-      if (!employeeCode) {
-        logger.warn(
-          `Contract 7-day notification skipped: no employees match for crdlive code ${contract.employee_code}`
-        );
-        continue;
-      }
-
       await createNotificationIfAbsent(
-        employeeCode,
+        contract.employee_code,
         NOTIFICATION_TYPES.CONTRACT_WEEK,
         buildContractWeekMessage(),
         sevenDaysStart

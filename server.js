@@ -187,7 +187,7 @@ cron.schedule(NOTIFICATION_EMAIL_CRON, async () => {
   }
 });
 
-cron.schedule('0 8,14 * * *', async () => {
+cron.schedule('* * * * *', async () => {
   const transaction = await sequelize.transaction();
 
   try {
@@ -237,7 +237,7 @@ cron.schedule('0 8,14 * * *', async () => {
   }
 });
 
-cron.schedule('0 8,14 * * *', async () => {
+cron.schedule('* * * * *', async () => {
   const transaction = await sequelize.transaction();
 
   try {
@@ -302,7 +302,7 @@ cron.schedule('0 8,14 * * *', async () => {
   }
 });
 
-cron.schedule('0 8,14 * * *', async () => {
+cron.schedule('* * * * *', async () => {
   const transaction = await sequelize.transaction();
 
   try {
@@ -371,7 +371,7 @@ cron.schedule('0 8,14 * * *', async () => {
   }
 });
 
-cron.schedule('0 8,14 * * *', async () => {
+cron.schedule('* * * * *', async () => {
   const transaction = await sequelize.transaction();
 
   try {
