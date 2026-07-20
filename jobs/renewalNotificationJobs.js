@@ -13,7 +13,7 @@ const {
 const STAFF_PORTAL_URL =
   process.env.STAFF_PORTAL_URL ||
   process.env.FRONTEND_URL ||
-  "https://ambasphere.mtc.com.na/";
+  "https://ambasphere.mtc.com.na";
 
 const NOTIFICATION_TYPES = {
   HANDSET_WEEK: "Handset Benefit: Something shiny is coming in 7 days...",
@@ -38,37 +38,48 @@ function getEmployeeName(handset) {
   return name || "there";
 }
 
-function buildHandsetWeekMessage(employeeName, renewalDate) {
+function getHandsetDeviceName(handset) {
+  const name = handset.description?.trim() || handset.part_no?.trim();
+  return name || "your current device";
+}
+
+function getContractDeviceName(contract) {
+  const name = contract.device?.trim();
+  return name || "your current device";
+}
+
+function buildHandsetWeekMessage(employeeName, renewalDate, deviceName, portalUrl) {
   const formattedDate = formatRenewalDate(renewalDate);
   return (
     `Hi ${employeeName},\n\n` +
-    "Ready for a refresh? Your 2-year handset benefit anniversary is just one week away!\n\n" +
+    `Ready for a refresh? Your 2-year handset benefit anniversary for your ${deviceName} is just one week away!\n\n` +
     `Mark your calendar for ${formattedDate}. You'll be eligible to select a brand-new device to add to your collection. Don't worry—your current phone stays with you; we're just excited to get a new one into your hands.\n\n` +
-    'Keep an eye out for the "Selection Menu" landing in your inbox next week!'
+    'Keep an eye out for the "Selection Menu" landing in your inbox next week!\n\n' +
+    `Visit the benefits portal: ${portalUrl}`
   );
 }
 
-function buildHandsetTodayMessage(employeeName, portalUrl) {
+function buildHandsetTodayMessage(employeeName, deviceName, portalUrl) {
   return (
     `Hi ${employeeName},\n\n` +
-    "Your 2-year anniversary with your current phone has officially come to an end. It's time for a brand-new handset!\n\n" +
+    `Your 2-year anniversary with your ${deviceName} has officially come to an end. It's time for a brand-new handset!\n\n` +
     "As part of your employee benefits, you are now officially eligible to pick out your new device. Since your current phone is yours to keep, you can simply enjoy the best of both worlds—or use the new one as your primary daily driver right away.\n\n" +
     `Simulate your new handset here: ${portalUrl}\n\n` +
     "Enjoy the new tech!"
   );
 }
 
-function buildContractWeekMessage() {
+function buildContractWeekMessage(deviceName, portalUrl) {
   return (
-    "Your current device contract is set to expire in 7 days.\n\n" +
+    `Your current device contract for your ${deviceName} is set to expire in 7 days.\n\n` +
     "Once the contract concludes, you will be eligible to select a new device using your monthly airtime benefit.\n\n" +
-    "Please review your options to ensure a smooth transition."
+    `Please review your options to ensure a smooth transition: ${portalUrl}`
   );
 }
 
-function buildContractTodayMessage(portalUrl) {
+function buildContractTodayMessage(deviceName, portalUrl) {
   return (
-    "Your device contract has officially expired today.\n\n" +
+    `Your device contract for your ${deviceName} has officially expired today.\n\n` +
     "You are now eligible to utilize your monthly airtime benefit for a new 12, 24, or 36-month device plan.\n\n" +
     `Visit the benefits portal to browse available devices and start your next contract: ${portalUrl}`
   );
@@ -230,7 +241,12 @@ async function processHandsetWeekRenewals() {
       await createNotificationIfAbsent(
         handset.employee_code,
         NOTIFICATION_TYPES.HANDSET_WEEK,
-        buildHandsetWeekMessage(employeeName, handset.renewal_date),
+        buildHandsetWeekMessage(
+          employeeName,
+          handset.renewal_date,
+          getHandsetDeviceName(handset),
+          STAFF_PORTAL_URL
+        ),
         sevenDaysStart
       );
     } catch (error) {
@@ -262,7 +278,11 @@ async function processHandsetRenewalsDueToday() {
       await createNotificationIfAbsent(
         handset.employee_code,
         NOTIFICATION_TYPES.HANDSET_TODAY,
-        buildHandsetTodayMessage(employeeName, STAFF_PORTAL_URL),
+        buildHandsetTodayMessage(
+          employeeName,
+          getHandsetDeviceName(handset),
+          STAFF_PORTAL_URL
+        ),
         todayStart
       );
     } catch (error) {
@@ -291,7 +311,10 @@ async function processContractWeekRenewals() {
       await createNotificationIfAbsent(
         contract.employee_code,
         NOTIFICATION_TYPES.CONTRACT_WEEK,
-        buildContractWeekMessage(),
+        buildContractWeekMessage(
+          getContractDeviceName(contract),
+          STAFF_PORTAL_URL
+        ),
         sevenDaysStart
       );
     } catch (error) {
@@ -320,7 +343,10 @@ async function processContractsExpiringToday() {
     try {
       await expireContractAndNotifyIfAbsent(
         contract,
-        buildContractTodayMessage(STAFF_PORTAL_URL),
+        buildContractTodayMessage(
+          getContractDeviceName(contract),
+          STAFF_PORTAL_URL
+        ),
         todayStart
       );
     } catch (error) {
