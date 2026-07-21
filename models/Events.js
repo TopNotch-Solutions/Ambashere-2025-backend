@@ -36,6 +36,11 @@ const Events = sequelize.define(
       type: DataTypes.INTEGER,
       allowNull: true,
     },
+    NotificationSent: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false,
+    },
   },
   {
     timestamps: false,

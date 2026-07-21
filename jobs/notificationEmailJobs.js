@@ -1,8 +1,11 @@
-const { Op } = require("sequelize");
+const { Op, QueryTypes } = require("sequelize");
 const sequelize = require("../config/database");
 const logger = require("../middlewares/errorLogger");
 const Notifications = require("../models/Notifications");
-const { sendNotificationEmail } = require("../middlewares/notificationEmail");
+const {
+  sendNotificationEmail,
+  sendCalendarEventEmail,
+} = require("../middlewares/notificationEmail");
 const {
   NOTIFICATION_EMAIL_RECIPIENT,
   NOTIFICATION_EMAIL_TEST_ONLY,
@@ -84,6 +87,8 @@ async function releaseNotificationEmailClaim(notificationId) {
 }
 
 async function processNotificationEmails() {
+  await processCalendarNotificationEmails();
+
   const pending = await Notifications.findAll({
     where: {
       EmailSent: false,
@@ -142,7 +147,111 @@ async function processNotificationEmails() {
   }
 }
 
+async function getPendingCalendarEmailNotifications(limit = BATCH_SIZE) {
+  return sequelize.query(
+    `
+    SELECT n.*
+    FROM notifications n
+    INNER JOIN events e
+      ON e.EventName = n.Type
+      AND (
+        e.EventDescription = n.Message
+        OR (
+          (e.EventDescription IS NULL OR e.EventDescription = '')
+          AND n.Message = 'No additional details provided.'
+        )
+      )
+      AND e.NotificationSent = 1
+    WHERE n.EmailSent = 0
+    ORDER BY n.Created_At ASC
+    LIMIT :limit
+    `,
+    {
+      replacements: { limit },
+      type: QueryTypes.SELECT,
+      ...queryOptions,
+    }
+  );
+}
+
+async function processCalendarNotificationEmails() {
+  const pending = await getPendingCalendarEmailNotifications();
+
+  if (pending.length === 0) return;
+
+  logger.info(`Calendar email cron: ${pending.length} pending email(s)`);
+
+  const sentTestEmails = new Set();
+
+  for (const notification of pending) {
+    const notificationId = notification.NotificationID;
+
+    try {
+      const claimed = await claimNotificationForEmail(notificationId);
+      if (!claimed) continue;
+
+      const staff = await findStaffByEmployeeCode(
+        notification.RecipientEmployeeCode
+      );
+      const intendedRecipientLabel = staff
+        ? `${staff.FullName} (${staff.Email})`
+        : `${notification.RecipientEmployeeCode} (email not found)`;
+
+      const emailRecipient = NOTIFICATION_EMAIL_TEST_ONLY
+        ? NOTIFICATION_EMAIL_RECIPIENT
+        : staff?.Email;
+
+      if (!emailRecipient) {
+        await releaseNotificationEmailClaim(notificationId);
+        logger.warn(
+          `Skipping calendar email for notification ${notificationId}: no email address`
+        );
+        continue;
+      }
+
+      if (NOTIFICATION_EMAIL_TEST_ONLY) {
+        const testKey = `${notification.Type}|${notification.Message}`;
+        if (sentTestEmails.has(testKey)) {
+          await releaseNotificationEmailClaim(notificationId);
+          continue;
+        }
+        sentTestEmails.add(testKey);
+      }
+
+      try {
+        await sendCalendarEventEmail({
+          to: emailRecipient,
+          subject: notification.Type,
+          eventName: notification.Type,
+          eventDescription: notification.Message,
+          greetingName: staff?.FullName?.split(" ")[0],
+          intendedRecipientLabel: NOTIFICATION_EMAIL_TEST_ONLY
+            ? intendedRecipientLabel
+            : undefined,
+        });
+
+        logger.info(
+          `Calendar notification email sent to ${emailRecipient}` +
+            (NOTIFICATION_EMAIL_TEST_ONLY
+              ? ` (test mode — intended for ${intendedRecipientLabel})`
+              : "") +
+            ` (notification ${notificationId})`
+        );
+      } catch (emailError) {
+        await releaseNotificationEmailClaim(notificationId);
+        throw emailError;
+      }
+    } catch (error) {
+      logger.error(
+        `Failed to email calendar notification ${notificationId}:`,
+        error
+      );
+    }
+  }
+}
+
 module.exports = {
   processNotificationEmails,
+  processCalendarNotificationEmails,
   NOTIFICATION_EMAIL_RECIPIENT,
 };

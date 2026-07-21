@@ -38,7 +38,8 @@ const {
   processContractWeekRenewals,
   processContractsExpiringToday,
 } = require("./jobs/renewalNotificationJobs");
-const { processNotificationEmails } = require("./jobs/notificationEmailJobs");
+const { processNotificationEmails, processCalendarNotificationEmails } = require("./jobs/notificationEmailJobs");
+const { processDueEventNotifications } = require("./jobs/eventNotificationJobs");
 const CdrLiveEmployeeContractDetails = require("./models/crdliveEmployeeContractDetail");
 const CdrLiveEmployeeDetail = require("./models/crdliveEmployeeDetail");
 const CdrLiveEmployeeHandsetDetail = require("./models/crdliveEmployeeHandsetDetail");
@@ -184,6 +185,18 @@ cron.schedule(NOTIFICATION_EMAIL_CRON, async () => {
     await processNotificationEmails();
   } catch (error) {
     logger.error("Notification email cron failed:", error);
+  }
+});
+
+const EVENT_NOTIFICATION_CRON =
+  process.env.EVENT_NOTIFICATION_CRON || "* * * * *";
+
+cron.schedule(EVENT_NOTIFICATION_CRON, async () => {
+  try {
+    await processDueEventNotifications();
+    await processCalendarNotificationEmails();
+  } catch (error) {
+    logger.error("Calendar event notification cron failed:", error);
   }
 });
 

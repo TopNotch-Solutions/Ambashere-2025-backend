@@ -2,9 +2,26 @@ const Events = require("../models/Events");
 const sequelize = require("../config/database");
 const logger = require("../middlewares/errorLogger");
 
+const normalizeEventDate = (eventDate) => {
+  if (!eventDate) return null;
+  if (typeof eventDate === "string" && eventDate.includes("T")) {
+    return eventDate.split("T")[0];
+  }
+  return eventDate;
+};
+
+const normalizeRecurrenceType = (recurrenceType) => {
+  const value = String(recurrenceType || "None").trim();
+  if (value.toLowerCase() === "none") return "None";
+  const allowed = ["None", "Daily", "Weekly", "Monthly"];
+  return allowed.includes(value) ? value : "None";
+};
+
 exports.getEvents = async (req, res) => {
     try {
-        const events = await Events.findAll();
+        const events = await Events.findAll({
+            order: [["EventDate", "ASC"], ["EventTime", "ASC"]],
+        });
         res.json(events);
     } catch (error) {
         logger.error(error);
@@ -32,11 +49,12 @@ exports.createEvent = async (req, res) => {
 
         const newEvent = await Events.create({
             EventName,
-            EventDate,
+            EventDate: normalizeEventDate(EventDate),
             EventTime,
-            EventDescription,
-            RecurrenceType,
-            RecurrenceInterval
+            EventDescription: EventDescription || "",
+            RecurrenceType: normalizeRecurrenceType(RecurrenceType),
+            RecurrenceInterval: RecurrenceInterval || 1,
+            NotificationSent: false,
         });
 
         // ✅ Ensure EventID is included in response
@@ -82,7 +100,26 @@ exports.updateEvent = async (req, res) => {
         if (!event) {
             return res.status(404).json({ message: "Event not found" });
         }
-        await event.update(req.body);
+        const scheduleChanged =
+            (req.body.EventDate &&
+                normalizeEventDate(req.body.EventDate) !==
+                    normalizeEventDate(event.EventDate)) ||
+            (req.body.EventTime && req.body.EventTime !== event.EventTime);
+
+        const { NotificationSent: _ignored, ...updatePayload } = req.body;
+
+        await event.update({
+            ...updatePayload,
+            EventDate: req.body.EventDate
+                ? normalizeEventDate(req.body.EventDate)
+                : event.EventDate,
+            RecurrenceType: req.body.RecurrenceType
+                ? normalizeRecurrenceType(req.body.RecurrenceType)
+                : event.RecurrenceType,
+            RecurrenceInterval:
+                req.body.RecurrenceInterval ?? event.RecurrenceInterval ?? 1,
+            NotificationSent: scheduleChanged ? false : event.NotificationSent,
+        });
         res.json(event);
     } catch (error) {
         logger.error(error);

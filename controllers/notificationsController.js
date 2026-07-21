@@ -29,6 +29,15 @@ function normalizedEmployeeCodeWhere(columnName, employeeCode) {
   );
 }
 
+function userNotificationFilter(employeeCode) {
+  return {
+    [Op.or]: [
+      normalizedEmployeeCodeWhere("EmployeeCode", employeeCode),
+      normalizedEmployeeCodeWhere("RecipientEmployeeCode", employeeCode),
+    ],
+  };
+}
+
 exports.createNotification = async (req, res) => {
   try {
     console.log("IO Object:", io); // Log the io object
@@ -134,7 +143,7 @@ exports.getNotifications = async (req, res) => {
 
     let notifications;
       notifications = await Notifications.findAll({
-        where: normalizedEmployeeCodeWhere("EmployeeCode", employeeCode),
+        where: userNotificationFilter(employeeCode),
         order: [["Created_At", "DESC"]],
       });
       console.log("My notifications: ",notifications)
@@ -158,11 +167,8 @@ exports.getAdminNotifications = async (req, res) => {
   try {
     const notificationCount = await Notifications.count({
       where: {
-        [Op.and]: [
-          normalizedEmployeeCodeWhere("RecipientEmployeeCode", employeeCode),
-          { Viewed: false },
-        ],
-      }, // Assuming this is the field for receivers
+        [Op.and]: [{ Viewed: false }, userNotificationFilter(employeeCode)],
+      },
     });
 
     res.status(200).json({ count: notificationCount });
@@ -185,15 +191,23 @@ exports.markNotificationAsRead = async (req, res) => {
     const [updatedRows] = await Notifications.update(
       { Viewed: true },
       {
-        where: normalizedEmployeeCodeWhere("EmployeeCode", employeeCode),
+        where: {
+          [Op.and]: [{ Viewed: false }, userNotificationFilter(employeeCode)],
+        },
       }
     );
 
     if (updatedRows === 0) {
-      return res.status(404).json({ message: "Notification not found or not authorized." });
+      return res.status(200).json({
+        message: "No unread notifications to mark as read.",
+        updatedCount: 0,
+      });
     }
 
-    res.status(200).json({ message: "Notification marked as read successfully." });
+    res.status(200).json({
+      message: "Notifications marked as read successfully.",
+      updatedCount: updatedRows,
+    });
   } catch (error) {
     logger.error("Error marking specific notification as read:", error);
     res.status(500).json({
