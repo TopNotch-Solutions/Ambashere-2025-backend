@@ -21,6 +21,7 @@ router.get("/analytics/trends", tokenAuthMiddleware, checkAdmin, reportsControll
 
 // Compliance & Audit Reports
 router.get("/compliance/overview", tokenAuthMiddleware, checkAdmin, reportsController.getComplianceReport);
+router.get("/compliance/limit-violations", tokenAuthMiddleware, checkAdmin, reportsController.getLimitViolationsReport);
 
 // Time-based Reports
 router.get("/time/monthly", tokenAuthMiddleware, checkAdmin, reportsController.getMonthlyReport);

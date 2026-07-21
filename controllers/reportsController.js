@@ -661,3 +661,145 @@ exports.getROIReport = async (req, res) => {
     res.status(500).json({ message: "Failed to fetch ROI data" });
   }
 };
+
+const roundCurrency = (value) =>
+  Math.round((parseFloat(value) || 0) * 100) / 100;
+
+const formatContractDetail = (contract) => {
+  const start = contract.contractStartDate
+    ? new Date(contract.contractStartDate).toISOString().slice(0, 10)
+    : "N/A";
+  const end = contract.contractEndDate
+    ? new Date(contract.contractEndDate).toISOString().slice(0, 10)
+    : "N/A";
+
+  return [
+    `Package: ${contract.package || "N/A"}`,
+    `MSISDN: ${contract.msisdn || "N/A"}`,
+    `Device: ${contract.device || "N/A"}`,
+    `Monthly: N$${roundCurrency(contract.monthlyPayment)}`,
+    `Status: ${contract.subscriptionStatus || "N/A"}`,
+    `Period: ${start} to ${end}`,
+  ].join(" | ");
+};
+
+const buildLimitViolations = (contracts, statusFilter) => {
+  const isActiveScope = statusFilter === "active";
+  const filterFn = isActiveScope
+    ? (contract) => contract.subscriptionStatus === "Active"
+    : (contract) => contract.subscriptionStatus !== "Active";
+
+  const byEmployee = {};
+
+  for (const row of contracts) {
+    if (!filterFn(row)) continue;
+
+    const employeeCode = row.EmployeeCode;
+    if (!byEmployee[employeeCode]) {
+      byEmployee[employeeCode] = {
+        employeeCode,
+        fullName: row.FullName,
+        department: row.Department,
+        airtimeAllocation: parseFloat(row.AirtimeAllocation) || 0,
+        contracts: [],
+      };
+    }
+
+    byEmployee[employeeCode].contracts.push({
+      contractId: row.contractId,
+      package: row.package,
+      msisdn: row.msisdn,
+      device: row.device,
+      subscriptionStatus: row.subscriptionStatus,
+      contractStartDate: row.contractStartDate,
+      contractEndDate: row.contractEndDate,
+      monthlyPayment: parseFloat(row.monthlyPayment) || 0,
+    });
+  }
+
+  return Object.values(byEmployee)
+    .map((employee) => {
+      const allowanceLimit = employee.airtimeAllocation * 0.7;
+      const totalMonthlyPayment = employee.contracts.reduce(
+        (sum, contract) => sum + contract.monthlyPayment,
+        0
+      );
+
+      if (totalMonthlyPayment <= allowanceLimit) {
+        return null;
+      }
+
+      return {
+        id: `${statusFilter}-${employee.employeeCode}`,
+        employeeCode: employee.employeeCode,
+        fullName: employee.fullName,
+        department: employee.department,
+        contractCount: employee.contracts.length,
+        airtimeAllocation: roundCurrency(employee.airtimeAllocation),
+        allowanceLimit: roundCurrency(allowanceLimit),
+        totalMonthlyPayment: roundCurrency(totalMonthlyPayment),
+        excessAmount: roundCurrency(totalMonthlyPayment - allowanceLimit),
+        limitCheck: "Exceeding Limit",
+        contractScope: isActiveScope ? "Active" : "Done",
+        contractDetails: employee.contracts
+          .map((contract) => formatContractDetail(contract))
+          .join("; "),
+        contracts: employee.contracts,
+      };
+    })
+    .filter(Boolean)
+    .sort((a, b) => b.excessAmount - a.excessAmount);
+};
+
+exports.getLimitViolationsReport = async (req, res) => {
+  try {
+    const contracts = await sequelize.query(
+      `
+      SELECT
+        e.EmployeeCode,
+        e.FullName,
+        e.Department,
+        a.AirtimeAllocation,
+        c.id AS contractId,
+        c.package,
+        c.msisdn,
+        c.device,
+        c.subscription_status AS subscriptionStatus,
+        c.contract_start_date AS contractStartDate,
+        c.contract_end_date AS contractEndDate,
+        ${MONTHLY_PAYMENT} AS monthlyPayment
+      FROM ${CONTRACTS_TABLE} c
+      INNER JOIN employees e ON ${EMPLOYEE_CONTRACT_JOIN}
+      INNER JOIN allocation a ON e.AllocationID = a.AllocationID
+      WHERE e.EmploymentStatus = 'Active'
+      ORDER BY e.FullName ASC, c.contract_start_date DESC
+    `,
+      { type: QueryTypes.SELECT }
+    );
+
+    const activeViolations = buildLimitViolations(contracts, "active");
+    const doneViolations = buildLimitViolations(contracts, "done");
+    const allEmployeeCodes = new Set(
+      [...activeViolations, ...doneViolations].map((row) => row.employeeCode)
+    );
+
+    res.json({
+      summary: {
+        activeViolationCount: activeViolations.length,
+        doneViolationCount: doneViolations.length,
+        totalEmployeesInViolation: allEmployeeCodes.size,
+        totalActiveContractsReviewed: contracts.filter(
+          (contract) => contract.subscriptionStatus === "Active"
+        ).length,
+        totalDoneContractsReviewed: contracts.filter(
+          (contract) => contract.subscriptionStatus !== "Active"
+        ).length,
+      },
+      activeViolations,
+      doneViolations,
+    });
+  } catch (error) {
+    logger.error("Error fetching limit violations report:", error);
+    res.status(500).json({ message: "Failed to fetch limit violations data" });
+  }
+};
