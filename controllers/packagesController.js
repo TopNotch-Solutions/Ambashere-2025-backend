@@ -2,20 +2,29 @@ const Packages = require("../models/Packages");
 const sequelize = require("../config/database");
 const logger = require("../middlewares/errorLogger");
 
+const toBoolean = (value, defaultValue = true) => {
+  if (value === undefined || value === null || value === "") {
+    return defaultValue;
+  }
+  return value === true || value === 1 || value === "1" || value === "true";
+};
+
 exports.createPackage = async (req, res) => {
-  try{
+  try {
     const {
       PackageName,
       PaymentPeriod,
       MonthlyPrice,
       IsActive = true,
+      AllowsDevice = true,
     } = req.body;
 
     const newPackage = await Packages.create({
       PackageName,
       PaymentPeriod,
       MonthlyPrice,
-      IsActive,
+      IsActive: toBoolean(IsActive, true),
+      AllowsDevice: toBoolean(AllowsDevice, true),
     });
 
     res.status(200).json(newPackage);
@@ -26,15 +35,14 @@ exports.createPackage = async (req, res) => {
       error: process.env.NODE_ENV === "production" ? undefined : error.message,
     });
   }
-  
-}
+};
 
 exports.getPackages = async (req, res) => {
   try {
     const packages = await Packages.findAll();
     res.status(200).json(packages);
   } catch (error) {
-    console.log("Here is the error:", error)
+    console.log("Here is the error:", error);
     logger.error(error);
     res.status(500).json({
       message: "Failed to retrieve package details:",
@@ -45,30 +53,68 @@ exports.getPackages = async (req, res) => {
 
 exports.updatePackage = async (req, res) => {
   const { id } = req.params;
-  let { PackageName, PaymentPeriod, MonthlyPrice, IsActive } = req.body;
+  let { PackageName, PaymentPeriod, MonthlyPrice, IsActive, AllowsDevice } =
+    req.body;
 
-  if (!PackageName || !PaymentPeriod || !MonthlyPrice) {
+  if (
+    PackageName === undefined ||
+    PackageName === null ||
+    String(PackageName).trim() === "" ||
+    PaymentPeriod === undefined ||
+    PaymentPeriod === null ||
+    PaymentPeriod === "" ||
+    MonthlyPrice === undefined ||
+    MonthlyPrice === null ||
+    MonthlyPrice === ""
+  ) {
     return res.status(400).json({ message: "All fields are required." });
   }
 
   try {
-    // ✅ Remove " months" and convert to number
     if (typeof PaymentPeriod === "string") {
-      PaymentPeriod = PaymentPeriod.replace(/\s*months?/i, ""); // remove " months" or "month"
+      PaymentPeriod = PaymentPeriod.replace(/\s*months?/i, "").trim();
     }
 
-    const existingPackage = await Packages.findOne({ where: { PackageID: id } });
+    if (typeof MonthlyPrice === "string") {
+      MonthlyPrice = MonthlyPrice.replace(/[^\d.-]/g, "");
+    }
+
+    const existingPackage = await Packages.findOne({
+      where: { PackageID: id },
+    });
 
     if (!existingPackage) {
-      return res.status(404).json({ message: `Package with ID ${id} not found.` });
+      return res
+        .status(404)
+        .json({ message: `Package with ID ${id} not found.` });
     }
+
+    const parsedPeriod = parseInt(PaymentPeriod, 10);
+    const parsedPrice = parseFloat(MonthlyPrice);
+
+    if (Number.isNaN(parsedPeriod) || Number.isNaN(parsedPrice)) {
+      return res.status(400).json({
+        message: "PaymentPeriod and MonthlyPrice must be valid numbers.",
+      });
+    }
+
+    const nextIsActive =
+      IsActive !== undefined
+        ? toBoolean(IsActive, existingPackage.IsActive)
+        : existingPackage.IsActive;
+
+    const nextAllowsDevice =
+      AllowsDevice !== undefined
+        ? toBoolean(AllowsDevice, existingPackage.AllowsDevice ?? true)
+        : existingPackage.AllowsDevice ?? true;
 
     await Packages.update(
       {
-        PackageName,
-        PaymentPeriod: parseInt(PaymentPeriod), // now numeric
-        MonthlyPrice: parseFloat(MonthlyPrice),
-        IsActive: IsActive !== undefined ? IsActive : existingPackage.IsActive,
+        PackageName: String(PackageName).trim(),
+        PaymentPeriod: String(parsedPeriod),
+        MonthlyPrice: parsedPrice,
+        IsActive: nextIsActive,
+        AllowsDevice: nextAllowsDevice,
       },
       {
         where: { PackageID: id },
@@ -85,20 +131,16 @@ exports.updatePackage = async (req, res) => {
   }
 };
 
-
-
 exports.removePackage = async (req, res) => {
   try {
     const { PackageID } = req.params;
 
-    // Ensure PackageID is provided
     if (!PackageID) {
       return res.status(400).json({
         message: "PackageID is required.",
       });
     }
 
-    // Attempt to find and delete the package by PackageID
     const deletedPackage = await Packages.destroy({
       where: {
         PackageID: PackageID,
@@ -121,26 +163,41 @@ exports.removePackage = async (req, res) => {
       error: process.env.NODE_ENV === "production" ? undefined : error.message,
     });
   }
-}
+};
 
 exports.getPackageList = async (req, res) => {
   try {
-    // First try to get packages with IsActive filter
     let staffPackages;
     try {
       staffPackages = await sequelize.query(
-        `SELECT PackageID, PackageName, MonthlyPrice FROM packages WHERE IsActive = true`,
+        `SELECT PackageID, PackageName, MonthlyPrice, AllowsDevice FROM packages WHERE IsActive = true`,
         { type: sequelize.QueryTypes.SELECT }
       );
     } catch (columnError) {
-      // If IsActive column doesn't exist, fall back to getting all packages
-      console.log("IsActive column not found, returning all packages");
-      staffPackages = await sequelize.query(
-        `SELECT PackageID, PackageName, MonthlyPrice FROM packages`,
-        { type: sequelize.QueryTypes.SELECT }
+      console.log(
+        "AllowsDevice/IsActive column issue, falling back for package list"
       );
+      try {
+        staffPackages = await sequelize.query(
+          `SELECT PackageID, PackageName, MonthlyPrice FROM packages WHERE IsActive = true`,
+          { type: sequelize.QueryTypes.SELECT }
+        );
+        staffPackages = staffPackages.map((pkg) => ({
+          ...pkg,
+          AllowsDevice: true,
+        }));
+      } catch (fallbackError) {
+        staffPackages = await sequelize.query(
+          `SELECT PackageID, PackageName, MonthlyPrice FROM packages`,
+          { type: sequelize.QueryTypes.SELECT }
+        );
+        staffPackages = staffPackages.map((pkg) => ({
+          ...pkg,
+          AllowsDevice: true,
+        }));
+      }
     }
-    
+
     res.status(200).json(staffPackages);
   } catch (error) {
     logger.error(error);
@@ -157,16 +214,15 @@ exports.getActivePackages = async (req, res) => {
     try {
       activePackages = await Packages.findAll({
         where: { IsActive: true },
-        order: [['PackageName', 'ASC']]
+        order: [["PackageName", "ASC"]],
       });
     } catch (columnError) {
-      // If IsActive column doesn't exist, return all packages
       console.log("IsActive column not found, returning all packages");
       activePackages = await Packages.findAll({
-        order: [['PackageName', 'ASC']]
+        order: [["PackageName", "ASC"]],
       });
     }
-    
+
     res.status(200).json(activePackages);
   } catch (error) {
     logger.error(error);
@@ -179,18 +235,16 @@ exports.getActivePackages = async (req, res) => {
 
 exports.getPackageById = async (req, res) => {
   try {
-    const package = await Packages.findByPk(req.params.id);
-    if (!package) {
+    const packageRecord = await Packages.findByPk(req.params.id);
+    if (!packageRecord) {
       return res.status(404).json({ message: "Package not found" });
     }
-    res.json(package);
+    res.json(packageRecord);
   } catch (error) {
     logger.error(error);
     res.status(500).json({
       message: "Failed to retrieve package by employee code:",
       error: process.env.NODE_ENV === "production" ? undefined : error.message,
     });
-  } 
+  }
 };
-
-

@@ -27,6 +27,11 @@ const Packages = sequelize.define(
       allowNull: false,
       defaultValue: true,
     },
+    AllowsDevice: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: true,
+    },
   },
   {
     timestamps: false,
