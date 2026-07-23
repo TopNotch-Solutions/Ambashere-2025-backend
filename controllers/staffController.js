@@ -17,6 +17,8 @@ const SpectraData = require("../models/spectraData");
 const stringSimilarity = require("string-similarity");
 const Asset = require("../models/Assets");
 const CdrLiveEmployeeDetail = require("../models/crdliveEmployeeDetail");
+const NewEmployeeList = require("../models/NewEmployeeList");
+const AirtimeContractSubmission = require("../models/AirtimeContractSubmission");
 
 // Create Employee
 exports.createStaff = async (req, res) => {
@@ -559,27 +561,57 @@ exports.getStaffWithAirtimeAllocation = async (req, res) => {
           replacements: { employeeCode },
           type: sequelize.QueryTypes.SELECT,
         });
-        const query3 = `SELECT c.*, p.PackageName, e.FullName, a.AirtimeAllocation
-          FROM contracts c
-          INNER JOIN employees e ON ${normalizedEmployeeCodeSql("c.EmployeeCode")} = ${normalizedEmployeeCodeSql("e.EmployeeCode")}
-          INNER JOIN packages p ON c.PackageID = p.PackageID
-          INNER JOIN allocation a ON e.AllocationID = a.AllocationID
-          WHERE ${normalizedEmployeeCodeSql("e.EmployeeCode")} = :employeeCode
-          AND e.EmploymentStatus = 'Active'`;
-    
-        const contracts3 = await sequelize.query(query2, {
-          replacements: { employeeCode },
-          type: sequelize.QueryTypes.SELECT,
-        });
-        console.log("My contracts: ", contracts)
+
+        // Match dashboard available formula:
+        // 70% allocation - Active CDR Live monthly - pending/in-progress submissions
+        const [activeCdrRows] = await sequelize.query(
+          `SELECT
+            COALESCE(c.device_monthly_price, 0) AS device_monthly_price,
+            COALESCE(c.serviceplan_monthly_price, 0) AS serviceplan_monthly_price
+           FROM crdlive_employee_contract_details c
+           INNER JOIN employees e
+             ON ${normalizedEmployeeCodeSql("c.employee_code")} =
+                ${normalizedEmployeeCodeSql("e.EmployeeCode")}
+           WHERE ${normalizedEmployeeCodeSql("e.EmployeeCode")} = ?
+             AND c.subscription_status = 'Active'
+             AND e.EmploymentStatus = 'Active'`,
+          { replacements: [employeeCode] }
+        );
+
+        const activeCdrMonthly = (activeCdrRows || []).reduce(
+          (total, item) =>
+            total +
+            (parseFloat(item.device_monthly_price) || 0) +
+            (parseFloat(item.serviceplan_monthly_price) || 0),
+          0
+        );
+
         const airtimeAllocation = allocation.AirtimeAllocation;
-        const totalMonthlyPayment = contracts3.reduce((total, item) => total + (item.MonthlyPayment || 0), 0);
-        console.log("Totaol monthly payment: ",totalMonthlyPayment,airtimeAllocation)
-        const calculatedAvailable = (70 / 100) * airtimeAllocation - totalMonthlyPayment;
-        console.log("Totaol monthly payment: ",calculatedAvailable)
+
+        const openSubmissions = await AirtimeContractSubmission.findAll({
+          where: {
+            employeeCode,
+            subscription_status: { [Op.in]: ["pending", "in progress"] },
+          },
+        });
+        const openSubmissionMonthly = openSubmissions.reduce((total, item) => {
+          const deviceMonthly = parseFloat(item.device_monthly_price) || 0;
+          const serviceMonthly = parseFloat(item.serviceplan_monthly_price) || 0;
+          return total + deviceMonthly + serviceMonthly;
+        }, 0);
+
+        const calculatedAvailable =
+          (70 / 100) * airtimeAllocation -
+          activeCdrMonthly -
+          openSubmissionMonthly;
         const available = parseFloat(calculatedAvailable.toFixed(2));
 
-    res.status(200).json({staffWithAirtimeAllocation, handsetAllocation: allocation.HandsetAllocation, available});
+    res.status(200).json({
+      staffWithAirtimeAllocation,
+      handsetAllocation: allocation.HandsetAllocation,
+      available,
+      contracts,
+    });
   } catch (error) {
     logger.error(error);
     res.status(500).json({
@@ -802,8 +834,8 @@ exports.syncStaffFromContractData = async (req, res) => {
 function mapCdrGenderToStaff(gender) {
   if (!gender) return null;
   const value = String(gender).trim().toUpperCase();
-  if (value === "M" || value === "MALE" || value.startsWith("M -") || value.startsWith("M -")) return "Male";
-  if (value === "F" || value === "FEMALE" || value.startsWith("F -") || value.startsWith("F -")) return "Female";
+  if (value.startsWith("F")) return "Female";
+  if (value.startsWith("M")) return "Male";
   return null;
 }
 
@@ -838,11 +870,11 @@ function normalizedEmployeeCodeWhere(columnName, employeeCode) {
 exports.syncStaffFromCdrLiveEmployeeDetail = async (req, res) => {
   try {
     const cdrEmployees = await CdrLiveEmployeeDetail.findAll({
-      attributes: ["msisdn", "employee_code", "email", "gender", "division"],
+      attributes: ["id", "msisdn", "employee_code", "email", "gender"],
     });
-    const staffMembers = await Staff.findAll({
-      attributes: ["EmployeeCode"],
-    });
+
+    // Normalize codes so E-NGOM02 and ENGOM02 match the same employee
+    const staffMembers = await Staff.findAll();
     const staffByNormalizedEmployeeCode = new Map();
 
     for (const staff of staffMembers) {
@@ -854,18 +886,27 @@ exports.syncStaffFromCdrLiveEmployeeDetail = async (req, res) => {
 
     let updated = 0;
     let skipped = 0;
-    let notFound = 0;
+    const notFoundEmployees = [];
+    const updatedEmployees = [];
 
     for (const cdr of cdrEmployees) {
-      const employeeCode = normalizeEmployeeCode(cdr.employee_code);
-      if (!employeeCode) {
+      const sourceCode = cdr.employee_code;
+      const normalizedCode = normalizeEmployeeCode(sourceCode);
+      if (!normalizedCode) {
         skipped++;
         continue;
       }
 
-      const staff = staffByNormalizedEmployeeCode.get(employeeCode);
+      const staff = staffByNormalizedEmployeeCode.get(normalizedCode);
       if (!staff) {
-        notFound++;
+        notFoundEmployees.push({
+          id: cdr.id,
+          employee_code: sourceCode,
+          normalizedEmployeeCode: normalizedCode,
+          msisdn: cdr.msisdn,
+          email: cdr.email,
+          gender: cdr.gender,
+        });
         continue;
       }
 
@@ -878,13 +919,10 @@ exports.syncStaffFromCdrLiveEmployeeDetail = async (req, res) => {
         updatePayload.Email = cdr.email.trim();
       }
 
+      // F... -> Female, M... -> Male
       const gender = mapCdrGenderToStaff(cdr.gender);
       if (gender) {
         updatePayload.Gender = gender;
-      }
-
-      if (cdr.division?.trim()) {
-        updatePayload.Department = cdr.division.trim();
       }
 
       if (Object.keys(updatePayload).length === 0) {
@@ -894,19 +932,240 @@ exports.syncStaffFromCdrLiveEmployeeDetail = async (req, res) => {
 
       await staff.update(updatePayload);
       updated++;
+      updatedEmployees.push({
+        sourceEmployeeCode: sourceCode,
+        matchedEmployeeCode: staff.EmployeeCode,
+        normalizedEmployeeCode: normalizedCode,
+        ...updatePayload,
+      });
     }
 
     res.status(200).json({
       message: "Staff sync from CDR live employee detail completed.",
+      total: cdrEmployees.length,
       updated,
       skipped,
-      notFound,
-      total: cdrEmployees.length,
+      notFoundCount: notFoundEmployees.length,
+      notFoundEmployees,
+      updatedEmployees,
     });
   } catch (error) {
     logger.error("Error syncing staff from CDR employee detail:", error);
     res.status(500).json({
       error: "An error occurred while syncing staff from CDR employee detail.",
+      details:
+        process.env.NODE_ENV === "production" ? undefined : error.message,
+    });
+  }
+};
+
+exports.syncStaffFromNewEmployeeList = async (req, res) => {
+  try {
+    const newEmployees = await NewEmployeeList.findAll({
+      attributes: [
+        "id",
+        "EmployeeCode",
+        "FirstName",
+        "LastName",
+        "department",
+        "title",
+        "DisplayName",
+        "DateEngaged",
+      ],
+    });
+
+    // Build a lookup keyed by normalized EmployeeCode so E-NGOM02 and ENGOM02 match
+    const staffMembers = await Staff.findAll();
+    const staffByNormalizedEmployeeCode = new Map();
+
+    for (const staff of staffMembers) {
+      const normalizedCode = normalizeEmployeeCode(staff.EmployeeCode);
+      if (normalizedCode && !staffByNormalizedEmployeeCode.has(normalizedCode)) {
+        staffByNormalizedEmployeeCode.set(normalizedCode, staff);
+      }
+    }
+
+    let updated = 0;
+    let created = 0;
+    let skipped = 0;
+    const notFoundEmployees = [];
+    const createdEmployees = [];
+    const updatedEmployees = [];
+    const createFailedEmployees = [];
+
+    for (const row of newEmployees) {
+      const sourceCode = row.EmployeeCode;
+      const normalizedCode = normalizeEmployeeCode(sourceCode);
+      if (!normalizedCode) {
+        skipped++;
+        continue;
+      }
+
+      const employee = staffByNormalizedEmployeeCode.get(normalizedCode);
+
+      const firstName = row.FirstName?.trim() || null;
+      const lastName = row.LastName?.trim() || null;
+      const department = row.department?.trim() || null;
+      const position = row.title?.trim() || null;
+      const displayName = row.DisplayName?.trim() || null;
+
+      if (!employee) {
+        // Not found in employees — create a new staff record
+        if (!firstName || !lastName) {
+          createFailedEmployees.push({
+            id: row.id,
+            EmployeeCode: sourceCode,
+            normalizedEmployeeCode: normalizedCode,
+            FirstName: row.FirstName,
+            LastName: row.LastName,
+            department: row.department,
+            title: row.title,
+            reason: "Missing FirstName or LastName required to create employee",
+          });
+          notFoundEmployees.push({
+            id: row.id,
+            EmployeeCode: sourceCode,
+            normalizedEmployeeCode: normalizedCode,
+            FirstName: row.FirstName,
+            LastName: row.LastName,
+            department: row.department,
+            title: row.title,
+          });
+          continue;
+        }
+
+        const storedEmployeeCode = String(sourceCode).trim().toUpperCase();
+        const userName =
+          lastName.charAt(0).toUpperCase() +
+          lastName.slice(1).toLowerCase() +
+          (firstName.charAt(0).toUpperCase() || "");
+        const fullName =
+          displayName || `${firstName} ${lastName}`.trim();
+
+        let employmentStartDate = null;
+        if (row.DateEngaged) {
+          const parsedDate = new Date(row.DateEngaged);
+          if (!Number.isNaN(parsedDate.getTime())) {
+            employmentStartDate = parsedDate;
+          }
+        }
+
+        try {
+          const newEmployee = await Staff.create({
+            EmployeeCode: storedEmployeeCode,
+            RoleID: 3,
+            AllocationID: 1,
+            FirstName: firstName,
+            LastName: lastName,
+            FullName: fullName,
+            UserName: userName,
+            Email: `noemail_${normalizedCode.toLowerCase()}@mtc.com.na`,
+            PhoneNumber: "81",
+            Gender: "Male",
+            ServicePlan: "Postpaid",
+            Position: position || "Not Specified",
+            Department: department || "Not Specified",
+            Division: department || "Not Specified",
+            EmploymentCategory: "Permanent",
+            EmploymentStatus: "Active",
+            EmploymentStartDate: employmentStartDate,
+          });
+
+          staffByNormalizedEmployeeCode.set(normalizedCode, newEmployee);
+          created++;
+          createdEmployees.push({
+            sourceEmployeeCode: sourceCode,
+            createdEmployeeCode: newEmployee.EmployeeCode,
+            normalizedEmployeeCode: normalizedCode,
+            FirstName: firstName,
+            LastName: lastName,
+            FullName: fullName,
+            Position: position || "Not Specified",
+            Department: department || "Not Specified",
+            Division: department || "Not Specified",
+          });
+        } catch (createError) {
+          createFailedEmployees.push({
+            id: row.id,
+            EmployeeCode: sourceCode,
+            normalizedEmployeeCode: normalizedCode,
+            FirstName: row.FirstName,
+            LastName: row.LastName,
+            department: row.department,
+            title: row.title,
+            reason: createError.message,
+          });
+          notFoundEmployees.push({
+            id: row.id,
+            EmployeeCode: sourceCode,
+            normalizedEmployeeCode: normalizedCode,
+            FirstName: row.FirstName,
+            LastName: row.LastName,
+            department: row.department,
+            title: row.title,
+          });
+        }
+        continue;
+      }
+
+      const updatePayload = {};
+
+      if (firstName) {
+        updatePayload.FirstName = firstName;
+      }
+      if (lastName) {
+        updatePayload.LastName = lastName;
+      }
+      if (department) {
+        updatePayload.Department = department;
+        // Keep Division the same as Department
+        updatePayload.Division = department;
+      }
+      if (position) {
+        updatePayload.Position = position;
+      }
+
+      if (firstName || lastName || displayName) {
+        const resolvedFirstName = firstName || employee.FirstName || "";
+        const resolvedLastName = lastName || employee.LastName || "";
+        updatePayload.FullName =
+          displayName || `${resolvedFirstName} ${resolvedLastName}`.trim();
+      }
+
+      if (Object.keys(updatePayload).length === 0) {
+        skipped++;
+        continue;
+      }
+
+      await employee.update(updatePayload);
+      updated++;
+      updatedEmployees.push({
+        sourceEmployeeCode: sourceCode,
+        matchedEmployeeCode: employee.EmployeeCode,
+        normalizedEmployeeCode: normalizedCode,
+        ...updatePayload,
+      });
+    }
+
+    res.status(200).json({
+      message: "Staff sync from new_employee_list completed.",
+      total: newEmployees.length,
+      updated,
+      created,
+      skipped,
+      notFoundCount: notFoundEmployees.length,
+      createFailedCount: createFailedEmployees.length,
+      notFoundEmployees,
+      createFailedEmployees,
+      createdEmployees,
+      updatedEmployees,
+    });
+  } catch (error) {
+    logger.error("Error syncing staff from new_employee_list:", error);
+    res.status(500).json({
+      error: "An error occurred while syncing staff from new_employee_list.",
+      details:
+        process.env.NODE_ENV === "production" ? undefined : error.message,
     });
   }
 };

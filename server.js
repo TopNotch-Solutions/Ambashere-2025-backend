@@ -43,6 +43,7 @@ const { processDueEventNotifications } = require("./jobs/eventNotificationJobs")
 const CdrLiveEmployeeContractDetails = require("./models/crdliveEmployeeContractDetail");
 const CdrLiveEmployeeDetail = require("./models/crdliveEmployeeDetail");
 const CdrLiveEmployeeHandsetDetail = require("./models/crdliveEmployeeHandsetDetail");
+const AirtimeContractSubmission = require("./models/AirtimeContractSubmission");
 
 const app = express();
 app.set('trust proxy', true);

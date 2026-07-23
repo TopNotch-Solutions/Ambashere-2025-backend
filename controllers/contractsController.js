@@ -10,12 +10,235 @@ const Contracts = require("../models/Contracts");
 const Packages = require("../models/Packages");
 const ContractData = require("../models/contractData");
 const CdrLiveEmployeeContractDetails = require("../models/crdliveEmployeeContractDetail");
+const AirtimeContractSubmission = require("../models/AirtimeContractSubmission");
+const Notifications = require("../models/Notifications");
+const { findStaffByEmployeeCode } = require("../utils/employeeCode");
+const { sendNotificationEmail } = require("../middlewares/notificationEmail");
+const { sendEmail } = require("../middlewares/email");
+const {
+  NOTIFICATION_EMAIL_TEST_ONLY,
+  NOTIFICATION_EMAIL_RECIPIENT,
+} = require("../jobs/notificationEmailConfig");
+
+const OPEN_SUBMISSION_STATUSES = ["pending", "in progress"];
+
+function formatMoneyNa(value) {
+  const amount = Number(value) || 0;
+  return `N$${amount.toLocaleString("en-NA", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`;
+}
+
+function buildSubmissionDetailsMessage(submissions) {
+  if (!submissions?.length) return "No package details available.";
+
+  return submissions
+    .map((submission, index) => {
+      const packageName = submission.package || "Unknown package";
+      const device = submission.device || "No device";
+      const duration = submission.contract_duration
+        ? `${Math.trunc(Number(submission.contract_duration))} months`
+        : "-";
+      return (
+        `Package ${index + 1}: ${packageName}\n` +
+        `Device: ${device}\n` +
+        `Package Price: ${formatMoneyNa(submission.package_price)}\n` +
+        `Device Cost: ${formatMoneyNa(submission.device_initail_cost)}\n` +
+        `Duration: ${duration}\n` +
+        `Transaction Type: ${submission.transaction_type || "-"}\n` +
+        `Plan Monthly: ${formatMoneyNa(submission.serviceplan_monthly_price)}\n` +
+        `Device Monthly: ${formatMoneyNa(submission.device_monthly_price)}\n` +
+        `Status: ${submission.subscription_status || "pending"}`
+      );
+    })
+    .join("\n\n");
+}
+
+async function notifyAirtimeContractSubmission({
+  employeeCode,
+  employee,
+  submissions,
+  monthlyPayment,
+  limitCheck,
+}) {
+  let io;
+  try {
+    io = require("../server").io;
+  } catch (error) {
+    io = null;
+  }
+
+  const employeeName = employee?.FullName || employeeCode;
+  const details = buildSubmissionDetailsMessage(submissions);
+  const packageCount = submissions.length;
+  const monthlyLabel = formatMoneyNa(monthlyPayment);
+
+  const userMessage =
+    `Your airtime contract request has been successfully submitted!\n\n` +
+    `Employee: ${employeeName} (${employeeCode})\n` +
+    `Packages Submitted: ${packageCount}\n` +
+    `Estimated Monthly Payment: ${monthlyLabel}\n` +
+    `Limit Check: ${limitCheck || "-"}\n\n` +
+    `${details}\n\n` +
+    `Your request is currently pending and will be reviewed by an administrator. You will be notified of any updates regarding your request.`;
+
+  const adminMessage =
+    `A new airtime contract request has been submitted.\n\n` +
+    `Employee: ${employeeName} (${employeeCode})\n` +
+    `Email: ${employee?.Email || "-"}\n` +
+    `Packages Submitted: ${packageCount}\n` +
+    `Estimated Monthly Payment: ${monthlyLabel}\n` +
+    `Limit Check: ${limitCheck || "-"}\n` +
+    `Request Date: ${new Date().toLocaleDateString()}\n\n` +
+    `${details}\n\n` +
+    `Please review and process the submission in Airtime Contracts.`;
+
+  const userNotification = await Notifications.create({
+    EmployeeCode: employeeCode,
+    Type: "Airtime Contract Submitted",
+    Message: userMessage,
+    Viewed: false,
+    Created_At: new Date(),
+    RecipientEmployeeCode: employeeCode,
+  });
+
+  if (io) {
+    io.emit("notification", userNotification);
+  }
+
+  const adminUsers = await Staff.findAll({
+    where: { RoleID: 1 },
+    attributes: ["EmployeeCode", "Email", "FullName"],
+  });
+
+  for (const admin of adminUsers) {
+    const adminNotification = await Notifications.create({
+      EmployeeCode: employeeCode,
+      Type: "New Airtime Contract Submission",
+      Message: adminMessage,
+      Viewed: false,
+      Created_At: new Date(),
+      RecipientEmployeeCode: admin.EmployeeCode,
+    });
+    if (io) {
+      io.emit("notification", adminNotification);
+    }
+  }
+
+  const resolveEmailRecipient = (intendedEmail, intendedLabel) => {
+    if (NOTIFICATION_EMAIL_TEST_ONLY) {
+      return {
+        to: NOTIFICATION_EMAIL_RECIPIENT,
+        intendedRecipientLabel: intendedLabel,
+      };
+    }
+    return {
+      to: intendedEmail,
+      intendedRecipientLabel: undefined,
+    };
+  };
+
+  // Employee email — same branded notification layout as other staff emails
+  if (employee?.Email) {
+    try {
+      const { to, intendedRecipientLabel } = resolveEmailRecipient(
+        employee.Email,
+        `${employeeName} <${employee.Email}>`
+      );
+      await sendNotificationEmail({
+        to,
+        subject: "Airtime Contract Submitted",
+        message: userMessage,
+        intendedRecipientLabel,
+      });
+    } catch (emailError) {
+      logger.error(
+        "Error sending airtime submission email to employee:",
+        emailError
+      );
+    }
+  }
+
+  // Admin email — same Ambasphere Notification System layout used elsewhere
+  if (employee?.Email || adminUsers.some((admin) => admin.Email)) {
+    try {
+      await sendEmail(
+        employee?.Email || adminUsers[0].Email,
+        `New Airtime Contract Submission - ${employeeName} (${employeeCode})`,
+        adminMessage
+      );
+    } catch (emailError) {
+      logger.error(
+        "Error sending airtime submission email to admins:",
+        emailError
+      );
+    }
+  }
+}
 
 function normalizeEmployeeCode(employeeCode) {
   return String(employeeCode || "")
     .trim()
     .replace(/[-\s]/g, "")
     .toUpperCase();
+}
+
+async function getOpenAirtimeSubmissions(employeeCode) {
+  return AirtimeContractSubmission.findAll({
+    where: {
+      employeeCode,
+      subscription_status: { [Op.in]: OPEN_SUBMISSION_STATUSES },
+    },
+    order: [["contract_submitted_date", "DESC"]],
+  });
+}
+
+function sumOpenSubmissionMonthly(submissions) {
+  return submissions.reduce((total, item) => {
+    const deviceMonthly = parseFloat(item.device_monthly_price) || 0;
+    const serviceMonthly = parseFloat(item.serviceplan_monthly_price) || 0;
+    return total + deviceMonthly + serviceMonthly;
+  }, 0);
+}
+
+function mapSubmissionToBenefitContract(submission) {
+  const deviceMonthly = parseFloat(submission.device_monthly_price) || 0;
+  const serviceMonthly = parseFloat(submission.serviceplan_monthly_price) || 0;
+  const deviceCost = parseFloat(submission.device_initail_cost) || 0;
+
+  return {
+    id: submission.id,
+    submissionId: submission.id,
+    package: submission.package,
+    PackageName: submission.package,
+    msisdn: submission.msisdn,
+    MSISDN: submission.msisdn,
+    device: submission.device,
+    DeviceName: submission.device,
+    device_initail_cost: deviceCost,
+    device_initial_cost: deviceCost,
+    DevicePrice: deviceCost,
+    package_price: submission.package_price,
+    contract_duration: submission.contract_duration,
+    ContractDuration: submission.contract_duration,
+    device_upfront_payment: submission.device_upfront_payment,
+    device_monthly_price: deviceMonthly,
+    serviceplan_monthly_price: serviceMonthly,
+    PackageMonthlyPayment: serviceMonthly,
+    MonthlyPayment: deviceMonthly + serviceMonthly,
+    TotalMonthlyPayment: deviceMonthly + serviceMonthly,
+    contract_submitted_date: submission.contract_submitted_date,
+    ContractStartDate: null,
+    contract_start_date: null,
+    ContractEndDate: null,
+    contract_end_date: null,
+    transaction_type: submission.transaction_type || null,
+    TransactionType: submission.transaction_type || null,
+    subscription_status: submission.subscription_status,
+    SubscriptionStatus: submission.subscription_status,
+    isSubmission: true,
+  };
 }
 
 function normalizedEmployeeCodeSql(columnName) {
@@ -189,12 +412,16 @@ exports.getStaffContracts = async (req, res) => {
 exports.getStaffContractById = async (req, res) => {
   try {
     const employeeCode = normalizeEmployeeCode(req.params.employeeCode);
+    const openSubmissions = await getOpenAirtimeSubmissions(employeeCode);
+    const openSubmissionContracts = openSubmissions.map(mapSubmissionToBenefitContract);
+    const openSubmissionMonthly = sumOpenSubmissionMonthly(openSubmissions);
 
     const query = `SELECT
       c.*,
       c.package AS PackageName,
       c.employee_code AS EmployeeCode,
-      (COALESCE(c.device_monthly_price, 0) + COALESCE(c.serviceplan_monthly_price, 0)) AS MonthlyPayment,
+      (COALESCE(c.device_monthly_price, 0) + COALESCE(c.serviceplan_monthly_price, 0)) AS MonthlyPayment
+      ,
       e.FullName,
       a.AirtimeAllocation
       FROM crdlive_employee_contract_details c
@@ -253,7 +480,19 @@ exports.getStaffContractById = async (req, res) => {
       }
       const airtimeAllocation = tempInfo.AirtimeAllocation;
       const sul = (30 / 100) * airtimeAllocation;
-      const available = (70 / 100) * airtimeAllocation;
+      const available =
+        (70 / 100) * airtimeAllocation - openSubmissionMonthly;
+
+      // No CDR Live contracts — still return open submissions for Benefits/Dashboard
+      if (openSubmissionContracts.length > 0) {
+        return res.status(200).json({
+          airtimeAllocation,
+          sul,
+          available,
+          contracts: openSubmissionContracts,
+        });
+      }
+
       return res
         .status(200)
         .json({ status: 1, airtimeAllocation, sul, available });
@@ -262,16 +501,29 @@ exports.getStaffContractById = async (req, res) => {
     console.log("Here are my contracts permanent:", contracts,);
     const airtimeAllocation = contracts[0].AirtimeAllocation;
     const sul = (30 / 100) * airtimeAllocation;
+    const activeCdrContracts = contracts.filter(
+      (item) =>
+        String(item.subscription_status || "").trim().toLowerCase() === "active"
+    );
+    const activeCdrMonthly = activeCdrContracts.reduce(
+      (total, item) =>
+        total +
+        (parseFloat(item.device_monthly_price) || 0) +
+        (parseFloat(item.serviceplan_monthly_price) || 0),
+      0
+    );
     const available =
-      (70 / 100) * airtimeAllocation -
-      contracts
-        .filter((item) => item.subscription_status === "Active")
-        .reduce((total, item) => total + (parseFloat(item.device_monthly_price) || 0) + (parseFloat(item.serviceplan_monthly_price) || 0), 0);
+      (70 / 100) * airtimeAllocation - activeCdrMonthly - openSubmissionMonthly;
 
-        console.log("Here are my available:", available, airtimeAllocation, sul, contracts);
-    res
-      .status(200)
-      .json({ airtimeAllocation, available, sul, contracts });
+    console.log("Here are my available:", available, airtimeAllocation, sul, contracts);
+
+    // Benefits/Dashboard: Active CDR Live + pending / in progress submissions only
+    res.status(200).json({
+      airtimeAllocation,
+      available,
+      sul,
+      contracts: [...activeCdrContracts, ...openSubmissionContracts],
+    });
   } catch (error) {
     logger.error(error);
     res.status(500).json({
@@ -350,7 +602,21 @@ exports.createInitialContract = async (req, res) => {
     }
 
     const createdContracts = [];
+    const createdSubmissions = [];
     let overallMonthlyPaymentForDb = MonthlyPayment; // Use the overall monthly payment from frontend
+
+    // contracts.LimitCheck ENUM only accepts: "Within Limit" | "Exceeding Limit"
+    const normalizedLimitCheck = (() => {
+      const value = String(LimitCheck || "").toLowerCase();
+      if (
+        value.includes("within") ||
+        value.includes("top-up") ||
+        value.includes("top up")
+      ) {
+        return "Within Limit";
+      }
+      return "Exceeding Limit";
+    })();
 
     // --- 2. Iterate through each package and create a separate contract entry ---
     for (const pkg of Packages) {
@@ -375,13 +641,15 @@ exports.createInitialContract = async (req, res) => {
       }
       
       const individualContractMonthlyPayment = pkg.AdjustedMonthlyPrice;
+      const packagePrice = parseFloat(pkg.BaseMonthlyPrice) || 0;
+      const servicePlanMonthlyPrice = packagePrice;
 
 
       const contractDataForEntry = {
         EmployeeCode: normalizedEmployeeCode,
         PackageID: pkg.PackageID, // Specific PackageID for this entry
         MonthlyPayment: individualContractMonthlyPayment, // Specific monthly payment for this package+device
-        LimitCheck: LimitCheck, // This might be constant across all entries in one submission
+        LimitCheck: normalizedLimitCheck,
         ApprovalStatus: ApprovalStatus, // Use the status from the frontend
         ContractDuration: pkg.ContractDuration, // Specific duration for this package
         SubscriptionStatus: "Renewed", // Specific status for this package
@@ -397,12 +665,46 @@ exports.createInitialContract = async (req, res) => {
 
       const newContract = await Contracts.create(contractDataForEntry);
       createdContracts.push(newContract);
+
+      const submission = await AirtimeContractSubmission.create({
+        employeeCode: normalizedEmployeeCode,
+        package: pkg.DisplayName || String(pkg.PackageID),
+        msisdn: MSISDN || null,
+        device: deviceNameForDb || null,
+        package_price: packagePrice,
+        device_initail_cost: devicePriceForDb ? devicePriceForDb : 0,
+        contract_duration: pkg.ContractDuration,
+        device_upfront_payment: upfrontPaymentForDb || 0,
+        device_monthly_price: deviceMonthlyPriceForDb ? deviceMonthlyPriceForDb : 0,
+        serviceplan_monthly_price: servicePlanMonthlyPrice,
+        contract_submitted_date: new Date(),
+        transaction_type: pkg.SubscriptionStatus || null,
+        subscription_status: "pending",
+      });
+      createdSubmissions.push(submission);
+    }
+
+    // Notify employee + admins (in-app and email). Do not fail the request if notify fails.
+    try {
+      const employee = await findStaffByEmployeeCode(normalizedEmployeeCode);
+      await notifyAirtimeContractSubmission({
+        employeeCode: normalizedEmployeeCode,
+        employee,
+        submissions: createdSubmissions,
+        monthlyPayment: overallMonthlyPaymentForDb,
+        limitCheck: normalizedLimitCheck,
+      });
+    } catch (notifyError) {
+      logger.error(
+        "Airtime contract created but notification failed:",
+        notifyError
+      );
     }
 
     // --- 3. Respond with Success ---
     res.status(201).json({
       message: "Contracts created successfully.",
-   // Return all created contract records
+      submissions: createdSubmissions,
     });
 
   } catch (error) {
@@ -1092,5 +1394,102 @@ exports.deleteContract = async (req, res) => {
   } catch (error) {
     console.error("Error deleting contract:", error); // Changed log message for clarity
     res.status(500).json({ message: "Server error during contract deletion. Please try again." }); // More descriptive error
+  }
+};
+
+const STATUS_TRANSITIONS = {
+  pending: "in progress",
+  "in progress": "completed",
+};
+
+exports.getAirtimeSubmissionsTotal = async (req, res) => {
+  try {
+    const count = await AirtimeContractSubmission.count();
+    res.status(200).json({ count });
+  } catch (error) {
+    logger.error("Error counting airtime submissions:", error);
+    res.status(500).json({ message: "Failed to count airtime submissions." });
+  }
+};
+
+exports.getAirtimeSubmissionsPerMonth = async (req, res) => {
+  try {
+    const rows = await sequelize.query(
+      `SELECT DATE_FORMAT(contract_submitted_date, '%Y-%m') AS month, COUNT(*) AS count
+       FROM airtime_contract_submissions
+       GROUP BY DATE_FORMAT(contract_submitted_date, '%Y-%m')
+       ORDER BY month ASC`,
+      { type: QueryTypes.SELECT }
+    );
+    res.status(200).json(rows);
+  } catch (error) {
+    logger.error("Error fetching airtime submissions per month:", error);
+    res.status(500).json({ message: "Failed to fetch submissions per month." });
+  }
+};
+
+exports.getActiveAirtimeSubmissions = async (req, res) => {
+  try {
+    const submissions = await sequelize.query(
+      `SELECT
+        s.*,
+        e.FullName
+       FROM airtime_contract_submissions s
+       LEFT JOIN employees e
+         ON ${normalizedEmployeeCodeSql("s.employeeCode")} =
+            ${normalizedEmployeeCodeSql("e.EmployeeCode")}
+       WHERE s.subscription_status IN ('pending', 'in progress', 'completed')
+       ORDER BY
+         CASE s.subscription_status
+           WHEN 'pending' THEN 1
+           WHEN 'in progress' THEN 2
+           WHEN 'completed' THEN 3
+           ELSE 4
+         END,
+         s.contract_submitted_date DESC`,
+      { type: QueryTypes.SELECT }
+    );
+    res.status(200).json({ submissions });
+  } catch (error) {
+    logger.error("Error fetching active airtime submissions:", error);
+    res.status(500).json({ message: "Failed to fetch active submissions." });
+  }
+};
+
+exports.updateAirtimeSubmissionStatus = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { subscription_status: nextStatus } = req.body;
+
+    if (!id) {
+      return res.status(400).json({ message: "Submission id is required." });
+    }
+
+    const submission = await AirtimeContractSubmission.findByPk(id);
+    if (!submission) {
+      return res.status(404).json({ message: "Submission not found." });
+    }
+
+    const currentStatus = submission.subscription_status;
+    const allowedNext = STATUS_TRANSITIONS[currentStatus];
+
+    if (!allowedNext || nextStatus !== allowedNext) {
+      return res.status(400).json({
+        message: `Invalid status transition. From '${currentStatus}' you can only move to '${
+          allowedNext || "no further status"
+        }'.`,
+      });
+    }
+
+    submission.subscription_status = nextStatus;
+    await submission.save();
+
+    res.status(200).json({
+      message: "Submission status updated successfully.",
+      submission,
+    });
+  } catch (error) {
+    logger.error("Error updating airtime submission status:", error);
+    res.status(500).json({ message: "Failed to update submission status." });
   }
 };

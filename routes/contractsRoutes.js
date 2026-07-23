@@ -11,6 +11,29 @@ router.get("/single/:id", checkAdmin, contractsController.getSingleContracts);
 router.get("/createdPerMonth", checkAdmin, contractsController.getContractsCreatedPerMonth);
 router.get("/endedPerMonth", checkAdmin, contractsController.getContractsEndedPerMonth);
 router.get("/staffContracts", checkAdmin, contractsController.getStaffContracts);
+
+// Airtime contract submissions (must be before /:employeeCode)
+router.get(
+  "/submissions/total",
+  checkAdmin,
+  contractsController.getAirtimeSubmissionsTotal
+);
+router.get(
+  "/submissions/perMonth",
+  checkAdmin,
+  contractsController.getAirtimeSubmissionsPerMonth
+);
+router.get(
+  "/submissions/active",
+  checkAdmin,
+  contractsController.getActiveAirtimeSubmissions
+);
+router.put(
+  "/submissions/:id/status",
+  checkAdmin,
+  contractsController.updateAirtimeSubmissionStatus
+);
+
 router.get("/:employeeCode", checkAllUsers, contractsController.getStaffContractById);
 router.get("/Temp/:employeeCode", checkAllUsers, contractsController.getTempContractById);
 
