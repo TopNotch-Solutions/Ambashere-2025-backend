@@ -38,10 +38,6 @@ const Staff = sequelize.define(
       type: DataTypes.STRING,
       allowNull: false,
     },
-    UserName:{
-      type: DataTypes.STRING,
-      allowNull: false,
-    },
     Email: {
       type: DataTypes.STRING,
       allowNull: true,

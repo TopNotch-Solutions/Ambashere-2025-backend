@@ -71,9 +71,6 @@ exports.createStaff = async (req, res) => {
       });
     }
 
-    // Generate UserName from LastName and FirstName
-    const userName = `${LastName}${FirstName.charAt(0).toUpperCase()}`;
-
     // Create a new employee
     const newEmployee = await Staff.create({
       EmployeeCode: normalizedEmployeeCode,
@@ -82,7 +79,6 @@ exports.createStaff = async (req, res) => {
       FirstName,
       LastName,
       FullName,
-      UserName: userName, // Added UserName
       Email,
       PhoneNumber,
       Gender,
@@ -436,7 +432,7 @@ exports.getPostPaidStaff = async (req, res) => {
   try {
     const postPaidEmployees = await Staff.count({
       where: {
-        ServicePlan: "Postpaid",
+        ServicePlan: "PostPaid",
         EmploymentStatus: "Active",
       },
     });
@@ -455,7 +451,7 @@ exports.getPrePaidStaff = async (req, res) => {
   try {
     const prePaidEmployees = await Staff.count({
       where: {
-        ServicePlan: "Prepaid",
+        ServicePlan: "PrePaid",
         EmploymentStatus: "Active",
       },
     });
@@ -645,7 +641,6 @@ exports.data = async (req, res) => {
       const employeeCode = normalizeEmployeeCode(rawEmployeeCode);
 
       const fullName = `${firstName} ${lastName}`;
-      const userName = `${lastName}${firstName.charAt(0).toUpperCase()}`;// or generate however you prefer
       const email = `${firstName.charAt(0).toLowerCase()}${lastName.toLowerCase()}@mtc.com.na`; // Placeholder
       const today = new Date();
 
@@ -662,11 +657,10 @@ exports.data = async (req, res) => {
         FirstName: firstName,
         LastName: lastName,
         FullName: fullName,
-        UserName: userName,
         Email: email,
         PhoneNumber: cellphone,
         Gender: "Male",              // Replace with actual or default
-        ServicePlan: "Prepaid",         // Replace with actual or default
+        ServicePlan: "PrePaid",         // Replace with actual or default
         Position: department,                  // Replace with actual or default
         Department: department,
         Division: null,                      // Replace with actual or default
@@ -1035,10 +1029,6 @@ exports.syncStaffFromNewEmployeeList = async (req, res) => {
         }
 
         const storedEmployeeCode = String(sourceCode).trim().toUpperCase();
-        const userName =
-          lastName.charAt(0).toUpperCase() +
-          lastName.slice(1).toLowerCase() +
-          (firstName.charAt(0).toUpperCase() || "");
         const fullName =
           displayName || `${firstName} ${lastName}`.trim();
 
@@ -1058,11 +1048,10 @@ exports.syncStaffFromNewEmployeeList = async (req, res) => {
             FirstName: firstName,
             LastName: lastName,
             FullName: fullName,
-            UserName: userName,
             Email: `noemail_${normalizedCode.toLowerCase()}@mtc.com.na`,
             PhoneNumber: "81",
             Gender: "Male",
-            ServicePlan: "Postpaid",
+            ServicePlan: "PostPaid",
             Position: position || "Not Specified",
             Department: department || "Not Specified",
             Division: department || "Not Specified",
@@ -1200,11 +1189,6 @@ exports.syncStaffFromTempData = async (req, res) => {
       const firstName = temp.firstName || "MTC";
       const lastName = temp.lastName || "Employee";
 
-      // Generate username: LastName + first letter of FirstName (both capitalized)
-      const username =
-        lastName.charAt(0).toUpperCase() + lastName.slice(1).toLowerCase() +
-        (firstName.charAt(0).toUpperCase() || "");
-
       // Determine AllocationID based on some logic if needed (example default to 1)
       const allocationID = 1;
 
@@ -1219,7 +1203,6 @@ exports.syncStaffFromTempData = async (req, res) => {
           //AllocationID: allocationID,
           FirstName: firstName,
           LastName: lastName,
-          UserName: username,
         });
       } else {
         // Create new employee
@@ -1230,12 +1213,11 @@ exports.syncStaffFromTempData = async (req, res) => {
           FullName: `${firstName} ${lastName}`,
           Position: "", // default empty
           AllocationID: allocationID,
-          UserName: username,
           RoleID: 3, // default role
           Gender: "Male", // default
           Email: `noemail_${employeeCode}@mtc.com.na`,
           PhoneNumber: temp.cellphone || "81",
-          ServicePlan: "Prepaid", // default
+          ServicePlan: "PrePaid", // default
           Department: temp.department || "",
           Division: temp.department || "",
           EmploymentCategory: "Temporary",

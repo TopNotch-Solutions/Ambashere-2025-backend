@@ -40,12 +40,14 @@ function buildSubmissionDetailsMessage(submissions) {
       const duration = submission.contract_duration
         ? `${Math.trunc(Number(submission.contract_duration))} months`
         : "-";
+      const topUp = formatMoneyNa(submission.top_up_amount);
       return (
         `Package ${index + 1}: ${packageName}\n` +
         `Device: ${device}\n` +
         `Package Price: ${formatMoneyNa(submission.package_price)}\n` +
         `Device Cost: ${formatMoneyNa(submission.device_initail_cost)}\n` +
         `Duration: ${duration}\n` +
+        `Top-up: ${topUp}\n` +
         `Transaction Type: ${submission.transaction_type || "-"}\n` +
         `Plan Monthly: ${formatMoneyNa(submission.serviceplan_monthly_price)}\n` +
         `Device Monthly: ${formatMoneyNa(submission.device_monthly_price)}\n` +
@@ -222,6 +224,8 @@ function mapSubmissionToBenefitContract(submission) {
     package_price: submission.package_price,
     contract_duration: submission.contract_duration,
     ContractDuration: submission.contract_duration,
+    top_up_amount: submission.top_up_amount,
+    TopUpAmount: submission.top_up_amount,
     device_upfront_payment: submission.device_upfront_payment,
     device_monthly_price: deviceMonthly,
     serviceplan_monthly_price: serviceMonthly,
@@ -587,8 +591,10 @@ exports.createInitialContract = async (req, res) => {
       ApprovalStatus,
       MSISDN,
       Packages, // This is the array of packages from the frontend
+      TopUpAmount,
     } = req.body;
     const normalizedEmployeeCode = normalizeEmployeeCode(EmployeeCode);
+    const totalTopUpAmount = Math.max(0, parseFloat(TopUpAmount) || 0);
 
     // --- 1. Basic Validation ---
     if (!normalizedEmployeeCode || !LimitCheck || !Packages || !Array.isArray(Packages) || Packages.length === 0) {
@@ -674,6 +680,7 @@ exports.createInitialContract = async (req, res) => {
         package_price: packagePrice,
         device_initail_cost: devicePriceForDb ? devicePriceForDb : 0,
         contract_duration: pkg.ContractDuration,
+        top_up_amount: totalTopUpAmount,
         device_upfront_payment: upfrontPaymentForDb || 0,
         device_monthly_price: deviceMonthlyPriceForDb ? deviceMonthlyPriceForDb : 0,
         serviceplan_monthly_price: servicePlanMonthlyPrice,
@@ -684,27 +691,29 @@ exports.createInitialContract = async (req, res) => {
       createdSubmissions.push(submission);
     }
 
-    // Notify employee + admins (in-app and email). Do not fail the request if notify fails.
-    try {
-      const employee = await findStaffByEmployeeCode(normalizedEmployeeCode);
-      await notifyAirtimeContractSubmission({
-        employeeCode: normalizedEmployeeCode,
-        employee,
-        submissions: createdSubmissions,
-        monthlyPayment: overallMonthlyPaymentForDb,
-        limitCheck: normalizedLimitCheck,
-      });
-    } catch (notifyError) {
-      logger.error(
-        "Airtime contract created but notification failed:",
-        notifyError
-      );
-    }
-
-    // --- 3. Respond with Success ---
+    // Respond immediately so voucher submit is not blocked by slow email/SMTP.
     res.status(201).json({
       message: "Contracts created successfully.",
       submissions: createdSubmissions,
+    });
+
+    // Notify employee + admins in the background. Do not fail the request if notify fails.
+    setImmediate(async () => {
+      try {
+        const employee = await findStaffByEmployeeCode(normalizedEmployeeCode);
+        await notifyAirtimeContractSubmission({
+          employeeCode: normalizedEmployeeCode,
+          employee,
+          submissions: createdSubmissions,
+          monthlyPayment: overallMonthlyPaymentForDb,
+          limitCheck: normalizedLimitCheck,
+        });
+      } catch (notifyError) {
+        logger.error(
+          "Airtime contract created but notification failed:",
+          notifyError
+        );
+      }
     });
 
   } catch (error) {

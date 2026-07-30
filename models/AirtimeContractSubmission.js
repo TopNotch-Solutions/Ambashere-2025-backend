@@ -39,6 +39,11 @@ const AirtimeContractSubmission = sequelize.define(
       type: DataTypes.DECIMAL(10, 2),
       allowNull: false,
     },
+    top_up_amount: {
+      type: DataTypes.DECIMAL(15, 2),
+      allowNull: false,
+      defaultValue: 0,
+    },
     device_upfront_payment: {
       type: DataTypes.DECIMAL(15, 2),
       allowNull: false,

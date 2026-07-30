@@ -16,6 +16,7 @@ async function up() {
       package_price DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
       device_initail_cost DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
       contract_duration DECIMAL(10, 2) NOT NULL,
+      top_up_amount DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
       device_upfront_payment DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
       device_monthly_price DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
       serviceplan_monthly_price DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
