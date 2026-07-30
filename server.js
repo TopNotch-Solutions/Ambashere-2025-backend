@@ -264,13 +264,13 @@ cron.schedule('0 9,14 * * *', async () => {
         "X-Password": process.env.X_PASSWORD,
       },
     });
-
+    console.log(response)
     if (!response.ok) {
       throw new Error(`HTTP error! Status: ${response.status}`);
     }
 
     const contractData = await response.json();
-
+    console.log("hheeee: ",contractData)
     if (!Array.isArray(contractData) || contractData.length === 0) {
       throw new Error("Invalid or empty contract data");
     }
@@ -282,14 +282,20 @@ cron.schedule('0 9,14 * * *', async () => {
     });
 
     const toNumberOrZero = (value) => {
+      if (value == null || typeof value === "object") return 0;
       const parsed = Number.parseFloat(value);
       return Number.isFinite(parsed) ? parsed : 0;
     };
 
+    const toStringOrEmpty = (value) => {
+      if (value == null || typeof value === "object") return "";
+      return String(value);
+    };
+
     const formattedData = contractData.map((c) => ({
-      package: c.package,
-      msisdn: c.msisdn,
-      device: c.device,
+      package: toStringOrEmpty(c.package),
+      msisdn: toStringOrEmpty(c.msisdn),
+      device: toStringOrEmpty(c.device),
       contract_duration: toNumberOrZero(c.contract_duration),
       contract_start_date: new Date(c.contract_start_date),
       contract_end_date: new Date(c.contract_end_date),
@@ -299,9 +305,9 @@ cron.schedule('0 9,14 * * *', async () => {
       device_payout_balance: toNumberOrZero(c.device_payout_balance),
       device_monthly_price: toNumberOrZero(c.device_monthly_price),
       serviceplan_monthly_price: toNumberOrZero(c.serviceplan_monthly_price),
-      subscription_status: c.subscription_status,
-      staff_msisdn: c.staff_msisdn,
-      employee_code: String(c.employee_code || "").replace(/-/g, ""),
+      subscription_status: toStringOrEmpty(c.subscription_status),
+      staff_msisdn: toStringOrEmpty(c.staff_msisdn),
+      employee_code: toStringOrEmpty(c.employee_code).replace(/-/g, ""),
     }));
 
     await CdrLiveEmployeeContractDetails.bulkCreate(formattedData, { transaction });
