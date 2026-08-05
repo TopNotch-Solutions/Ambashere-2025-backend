@@ -251,7 +251,7 @@ cron.schedule('0 9,14 * * *', async () => {
   }
 });
 
-cron.schedule('* * * * *', async () => {
+cron.schedule('0 9,14 * * *', async () => {
   const transaction = await sequelize.transaction();
 
   try {
