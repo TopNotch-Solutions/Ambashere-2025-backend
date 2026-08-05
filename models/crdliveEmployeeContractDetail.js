@@ -27,11 +27,11 @@ const CdrLiveEmployeeContractDetails = sequelize.define(
     },
     contract_start_date: {
       type: DataTypes.DATE,
-      allowNull: false,
+      allowNull: true,
     },
     contract_end_date: {
       type: DataTypes.DATE,
-      allowNull: false,
+      allowNull: true,
     },
     package_price: {
       type: DataTypes.DECIMAL(15, 2),

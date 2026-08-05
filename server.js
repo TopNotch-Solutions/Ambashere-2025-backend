@@ -251,7 +251,7 @@ cron.schedule('0 9,14 * * *', async () => {
   }
 });
 
-cron.schedule('0 9,14 * * *', async () => {
+cron.schedule('* * * * *', async () => {
   const transaction = await sequelize.transaction();
 
   try {
@@ -292,13 +292,19 @@ cron.schedule('0 9,14 * * *', async () => {
       return String(value);
     };
 
+    const toDateOrNull = (value) => {
+      if (value == null || value === "" || typeof value === "object") return null;
+      const date = new Date(value);
+      return Number.isNaN(date.getTime()) ? null : date;
+    };
+
     const formattedData = contractData.map((c) => ({
       package: toStringOrEmpty(c.package),
       msisdn: toStringOrEmpty(c.msisdn),
       device: toStringOrEmpty(c.device),
       contract_duration: toNumberOrZero(c.contract_duration),
-      contract_start_date: new Date(c.contract_start_date),
-      contract_end_date: new Date(c.contract_end_date),
+      contract_start_date: toDateOrNull(c.contract_start_date),
+      contract_end_date: toDateOrNull(c.contract_end_date),
       package_price: toNumberOrZero(c.package_price),
       device_initial_cost: toNumberOrZero(c.device_initial_cost),
       device_upfront_payment: toNumberOrZero(c.device_upfront_payment),
