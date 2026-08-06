@@ -45,6 +45,35 @@ const CdrLiveEmployeeDetail = require("./models/crdliveEmployeeDetail");
 const CdrLiveEmployeeHandsetDetail = require("./models/crdliveEmployeeHandsetDetail");
 const AirtimeContractSubmission = require("./models/AirtimeContractSubmission");
 
+/** Keep last row for each key (API payload dedupe). */
+const dedupeByKey = (rows, getKey) => {
+  const map = new Map();
+  for (const row of rows) {
+    map.set(getKey(row), row);
+  }
+  return Array.from(map.values());
+};
+
+const dateKey = (value) => {
+  if (!value) return "";
+  const time = value instanceof Date ? value.getTime() : new Date(value).getTime();
+  return Number.isNaN(time) ? "" : String(time);
+};
+
+const syncJobLocks = Object.create(null);
+const withSyncLock = (name, job) => async () => {
+  if (syncJobLocks[name]) {
+    console.warn(`Skipping ${name}: previous run still in progress`);
+    return;
+  }
+  syncJobLocks[name] = true;
+  try {
+    await job();
+  } finally {
+    syncJobLocks[name] = false;
+  }
+};
+
 const app = express();
 app.set('trust proxy', true);
 const server = http.createServer(app); // Create HTTP server
@@ -201,7 +230,7 @@ cron.schedule(EVENT_NOTIFICATION_CRON, async () => {
   }
 });
 
-cron.schedule('0 9,14 * * *', async () => {
+cron.schedule('0 9,15 * * *', withSyncLock("device-costs", async () => {
   const transaction = await sequelize.transaction();
 
   try {
@@ -231,12 +260,15 @@ cron.schedule('0 9,14 * * *', async () => {
       transaction
     });
 
-    const formattedData = deviceCosts.map(device => ({
-      device_name: device.device_name,
-      amount: parseFloat(device.amount),
-      device_group: device.device_group,
-      staff_discounted_amount: parseFloat(device.staff_discounted_amount)
-    }));
+    const formattedData = dedupeByKey(
+      deviceCosts.map(device => ({
+        device_name: device.device_name,
+        amount: parseFloat(device.amount),
+        device_group: device.device_group,
+        staff_discounted_amount: parseFloat(device.staff_discounted_amount)
+      })),
+      (d) => `${d.device_name}|${d.device_group}`
+    );
 
     await CdrLiveDeviceCost.bulkCreate(formattedData, { transaction });
 
@@ -249,9 +281,9 @@ cron.schedule('0 9,14 * * *', async () => {
 
     console.error("Transaction rolled back:", error.message);
   }
-});
+}));
 
-cron.schedule('0 9,15 * * *', async () => {
+cron.schedule('0 9,15 * * *', withSyncLock("employee-contracts", async () => {
   const transaction = await sequelize.transaction();
 
   try {
@@ -298,23 +330,35 @@ cron.schedule('0 9,15 * * *', async () => {
       return Number.isNaN(date.getTime()) ? null : date;
     };
 
-    const formattedData = contractData.map((c) => ({
-      package: toStringOrEmpty(c.package),
-      msisdn: toStringOrEmpty(c.msisdn),
-      device: toStringOrEmpty(c.device),
-      contract_duration: toNumberOrZero(c.contract_duration),
-      contract_start_date: toDateOrNull(c.contract_start_date),
-      contract_end_date: toDateOrNull(c.contract_end_date),
-      package_price: toNumberOrZero(c.package_price),
-      device_initial_cost: toNumberOrZero(c.device_initial_cost),
-      device_upfront_payment: toNumberOrZero(c.device_upfront_payment),
-      device_payout_balance: toNumberOrZero(c.device_payout_balance),
-      device_monthly_price: toNumberOrZero(c.device_monthly_price),
-      serviceplan_monthly_price: toNumberOrZero(c.serviceplan_monthly_price),
-      subscription_status: toStringOrEmpty(c.subscription_status),
-      staff_msisdn: toStringOrEmpty(c.staff_msisdn),
-      employee_code: toStringOrEmpty(c.employee_code).replace(/-/g, ""),
-    }));
+    const formattedData = dedupeByKey(
+      contractData.map((c) => ({
+        package: toStringOrEmpty(c.package),
+        msisdn: toStringOrEmpty(c.msisdn),
+        device: toStringOrEmpty(c.device),
+        contract_duration: toNumberOrZero(c.contract_duration),
+        contract_start_date: toDateOrNull(c.contract_start_date),
+        contract_end_date: toDateOrNull(c.contract_end_date),
+        package_price: toNumberOrZero(c.package_price),
+        device_initial_cost: toNumberOrZero(c.device_initial_cost),
+        device_upfront_payment: toNumberOrZero(c.device_upfront_payment),
+        device_payout_balance: toNumberOrZero(c.device_payout_balance),
+        device_monthly_price: toNumberOrZero(c.device_monthly_price),
+        serviceplan_monthly_price: toNumberOrZero(c.serviceplan_monthly_price),
+        subscription_status: toStringOrEmpty(c.subscription_status),
+        staff_msisdn: toStringOrEmpty(c.staff_msisdn),
+        employee_code: toStringOrEmpty(c.employee_code).replace(/-/g, ""),
+      })),
+      (c) =>
+        [
+          c.msisdn,
+          c.employee_code,
+          c.package,
+          c.device,
+          dateKey(c.contract_start_date),
+          dateKey(c.contract_end_date),
+          c.subscription_status,
+        ].join("|")
+    );
 
     await CdrLiveEmployeeContractDetails.bulkCreate(formattedData, { transaction });
 
@@ -326,9 +370,9 @@ cron.schedule('0 9,15 * * *', async () => {
     await transaction.rollback();
     console.error("Transaction rolled back:", error.message);
   }
-});
+}));
 
-cron.schedule('0 9,14 * * *', async () => {
+cron.schedule('0 9,15 * * *', withSyncLock("employee-details", async () => {
   const transaction = await sequelize.transaction();
 
   try {
@@ -363,27 +407,30 @@ cron.schedule('0 9,14 * * *', async () => {
       transaction,
     });
 
-    const formattedData = employeeData.map((emp) => ({
-      msisdn: emp.msisdn,
-      employee_code: String(emp.employee_code || "").replace(/-/g, ""),
-      full_names: emp.full_names,
-      last_name: emp.last_name,
-      username: emp.username || null,
-      email: emp.email || null,
-      gender: emp.gender || null,
-      position: emp.position || null,
-      division: emp.division || null,
-      employee_category: emp.employee_category || null,
-      employment_status: emp.employment_status || null,
-      employment_start_date: emp.employment_start_date
-        ? new Date(emp.employment_start_date)
-        : null,
-      employment_end_date: emp.employment_end_date
-        ? new Date(emp.employment_end_date)
-        : null,
-      serviceplan: emp.serviceplan || null,
-      airtime_allocation: toNumberOrZero(emp.airtime_allocation),
-    }));
+    const formattedData = dedupeByKey(
+      employeeData.map((emp) => ({
+        msisdn: emp.msisdn,
+        employee_code: String(emp.employee_code || "").replace(/-/g, ""),
+        full_names: emp.full_names,
+        last_name: emp.last_name,
+        username: emp.username || null,
+        email: emp.email || null,
+        gender: emp.gender || null,
+        position: emp.position || null,
+        division: emp.division || null,
+        employee_category: emp.employee_category || null,
+        employment_status: emp.employment_status || null,
+        employment_start_date: emp.employment_start_date
+          ? new Date(emp.employment_start_date)
+          : null,
+        employment_end_date: emp.employment_end_date
+          ? new Date(emp.employment_end_date)
+          : null,
+        serviceplan: emp.serviceplan || null,
+        airtime_allocation: toNumberOrZero(emp.airtime_allocation),
+      })),
+      (e) => `${e.employee_code}|${e.msisdn}`
+    );
 
     await CdrLiveEmployeeDetail.bulkCreate(formattedData, { transaction });
 
@@ -395,9 +442,9 @@ cron.schedule('0 9,14 * * *', async () => {
     await transaction.rollback();
     console.error("Transaction rolled back:", error.message);
   }
-});
+}));
 
-cron.schedule('0 9,14 * * *', async () => {
+cron.schedule('0 9,15 * * *', withSyncLock("employee-handsets", async () => {
   const transaction = await sequelize.transaction();
 
   try {
@@ -433,18 +480,21 @@ cron.schedule('0 9,14 * * *', async () => {
       transaction,
     });
 
-    const formattedData = handsetData.map((h) => ({
-      mr_number: h.mr_number,
-      employee_code: String(h.employee_code || "").replace(/-/g, ""),
-      employee_name: h.employee_name,
-      part_no: h.part_no,
-      description: h.description || null,
-      fixed_asset_code: h.fixed_asset_code || null,
-      cost: toNumberOrZero(h.cost),
-      renewal_date: h.renewal_date ? new Date(h.renewal_date) : null,
-      collected_date: h.collected_date ? new Date(h.collected_date) : null,
-      status: h.status || null
-    }));
+    const formattedData = dedupeByKey(
+      handsetData.map((h) => ({
+        mr_number: h.mr_number,
+        employee_code: String(h.employee_code || "").replace(/-/g, ""),
+        employee_name: h.employee_name,
+        part_no: h.part_no,
+        description: h.description || null,
+        fixed_asset_code: h.fixed_asset_code || null,
+        cost: toNumberOrZero(h.cost),
+        renewal_date: h.renewal_date ? new Date(h.renewal_date) : null,
+        collected_date: h.collected_date ? new Date(h.collected_date) : null,
+        status: h.status || null
+      })),
+      (h) => `${h.mr_number}|${h.employee_code}|${h.part_no}|${h.fixed_asset_code || ""}`
+    );
 
     await CdrLiveEmployeeHandsetDetail.bulkCreate(formattedData, { transaction });
 
@@ -456,7 +506,7 @@ cron.schedule('0 9,14 * * *', async () => {
     await transaction.rollback();
     console.error("Transaction rolled back:", error.message);
   }
-});
+}));
 
 
 app.use(errorHandler);
