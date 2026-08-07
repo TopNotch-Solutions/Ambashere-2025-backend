@@ -99,9 +99,7 @@ const logoPath = path.resolve(__dirname, '..', 'public', 'images', 'Ambasphere-L
               <tr>
                 <td style="padding: 0 32px 32px 32px;">
                   <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 24px;">
-                    <p style="margin: 0 0 12px 0; font-size: 15px; color: #2d3748; line-height: 1.7;">Good day <strong>Admin</strong>,</p>
                     ${messageToHtml(message)}
-                    <p style="margin: 12px 0 0 0; font-size: 15px; color: #2d3748; line-height: 1.7;">Kind regards,</p>
                     <p style="margin: 4px 0 0 0; font-size: 15px; color: #2d3748; line-height: 1.7;"><strong>${escapeHtml(sender?.FullName || 'Ambasphere User')}</strong></p>
                   </div>
                 </td>
