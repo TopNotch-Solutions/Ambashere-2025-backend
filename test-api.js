@@ -5,7 +5,7 @@ const testAPI = async () => {
     // Test the packageList endpoint (what users see)
     console.log("\n1. Testing /packages/packageList (user endpoint):");
     try {
-      const response = await fetch('http://localhost:4000/packages/packageList');
+      const response = await fetch('https://ambaspherebackend.mtc.com.na/packages/packageList');
       const data = await response.json();
       console.log(`✅ Status: ${response.status}`);
       console.log(`📦 Packages returned: ${data.length}`);
@@ -20,7 +20,7 @@ const testAPI = async () => {
     // Test the admin packages endpoint
     console.log("\n2. Testing /packages (admin endpoint):");
     try {
-      const response = await fetch('http://localhost:4000/packages');
+      const response = await fetch('https://ambaspherebackend.mtc.com.na/packages');
       const data = await response.json();
       console.log(`✅ Status: ${response.status}`);
       console.log(`📦 Packages returned: ${data.length}`);

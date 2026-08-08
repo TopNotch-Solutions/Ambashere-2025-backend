@@ -1,5 +1,6 @@
 const express = require("express");
 const bodyParser = require("body-parser");
+require("dotenv").config();
 const sequelize = require("./config/database");
 const cors = require("cors");
 const cookieParser = require("cookie-parser");
@@ -10,10 +11,10 @@ const cron = require("node-cron");
 const morgan = require("morgan");
 const logger = require("./middlewares/errorLogger");
 const errorHandler = require("./middlewares/errorHandlerMiddleware");
+const securityHeaders = require("./middlewares/securityHeaders");
 const path = require("path");
 const fetch = require("node-fetch");
 
-require("dotenv").config();
 const { tokenAuthMiddleware } = require("./middlewares/authMiddleware");
 
 
@@ -81,18 +82,23 @@ const io = socketIo(server, {
   cors: {
     origin: ["http://localhost:3000", "https://ambasphereuat.mtc.com.na", "https://ambasphere.mtc.com.na"],
     methods: ["GET", "POST", "PUT", "DELETE"],
-    allowedHeaders: ['Content-Type', 'Authorization'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-CSRF-Token', 'X-XSRF-Token'],
     credentials: true,
     exposedHeaders: ['Authorization', 'X-Refresh-Token'],
   },
 });
+
+app.use(securityHeaders);
 
 app.use(
   morgan("combined", {
     stream: { write: (message) => logger.info(message.trim()) },
   })
 );
-app.use(bodyParser.json({ limit: "50mb" }));
+app.use(bodyParser.json({
+  limit: "50mb",
+  type: ["application/json", "application/csp-report", "application/reports+json"],
+}));
 
 app.use(bodyParser.urlencoded({ limit: "50mb", extended: true }));
 
@@ -103,13 +109,19 @@ app.use(
   cors({
     origin: ["http://localhost:3000","https://ambasphereuat.mtc.com.na","https://ambasphere.mtc.com.na"],
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allowedHeaders: ['Content-Type', 'Authorization'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-CSRF-Token', 'X-XSRF-Token'],
     credentials: true,
     exposedHeaders: ['Authorization', 'X-Refresh-Token'],
   })
 );
 
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+
+// CSP violation reports (Report-To / report-to)
+app.post("/csp-report", (req, res) => {
+  logger.warn("CSP violation report", { report: req.body });
+  res.status(204).end();
+});
 
 
 // Defining the routes
