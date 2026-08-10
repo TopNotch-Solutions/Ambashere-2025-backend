@@ -32,6 +32,16 @@ const Packages = sequelize.define(
       allowNull: false,
       defaultValue: true,
     },
+    HasDeviceLimit: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false,
+    },
+    DeviceLimit: {
+      type: DataTypes.FLOAT,
+      allowNull: true,
+      defaultValue: null,
+    },
   },
   {
     timestamps: false,

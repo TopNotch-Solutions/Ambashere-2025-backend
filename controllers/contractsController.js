@@ -644,6 +644,37 @@ exports.createInitialContract = async (req, res) => {
         devicePriceForDb = pkg.DeviceAssigned.DevicePrice;
         deviceMonthlyPriceForDb = pkg.DeviceAssigned.MonthlyDeviceCost; // Map to DeviceMonthlyPrice
         upfrontPaymentForDb = pkg.DeviceAssigned.UpfrontPayment || 0;
+
+        // Enforce package device price limit when configured by admin
+        try {
+          const packageRecord = await Packages.findByPk(pkg.PackageID);
+          const hasDeviceLimit =
+            packageRecord &&
+            (packageRecord.HasDeviceLimit === true ||
+              packageRecord.HasDeviceLimit === 1 ||
+              packageRecord.HasDeviceLimit === "1");
+          const deviceLimit = parseFloat(packageRecord?.DeviceLimit);
+
+          if (
+            hasDeviceLimit &&
+            !Number.isNaN(deviceLimit) &&
+            deviceLimit > 0 &&
+            parseFloat(devicePriceForDb) > deviceLimit
+          ) {
+            return res.status(400).json({
+              message: `Device price N$${parseFloat(devicePriceForDb).toLocaleString()} exceeds the limit of N$${deviceLimit.toLocaleString()} for package "${packageRecord.PackageName || pkg.PackageID}".`,
+            });
+          }
+        } catch (limitError) {
+          // If columns are missing (pre-migration), skip enforcement
+          if (
+            !String(limitError?.message || "")
+              .toLowerCase()
+              .includes("unknown column")
+          ) {
+            logger.error(limitError);
+          }
+        }
       }
       
       const individualContractMonthlyPayment = pkg.AdjustedMonthlyPrice;

@@ -9,6 +9,36 @@ const toBoolean = (value, defaultValue = true) => {
   return value === true || value === 1 || value === "1" || value === "true";
 };
 
+const normalizeDeviceLimitFields = (
+  HasDeviceLimit,
+  DeviceLimit,
+  defaults = {}
+) => {
+  const hasLimit = toBoolean(
+    HasDeviceLimit,
+    defaults.HasDeviceLimit !== undefined ? defaults.HasDeviceLimit : false
+  );
+
+  if (!hasLimit) {
+    return { HasDeviceLimit: false, DeviceLimit: null };
+  }
+
+  let limitValue = DeviceLimit;
+  if (typeof limitValue === "string") {
+    limitValue = limitValue.replace(/[^\d.-]/g, "");
+  }
+
+  const parsedLimit = parseFloat(limitValue);
+  if (Number.isNaN(parsedLimit) || parsedLimit <= 0) {
+    return {
+      error:
+        "DeviceLimit is required and must be a positive number when HasDeviceLimit is Yes.",
+    };
+  }
+
+  return { HasDeviceLimit: true, DeviceLimit: parsedLimit };
+};
+
 exports.createPackage = async (req, res) => {
   try {
     const {
@@ -17,7 +47,17 @@ exports.createPackage = async (req, res) => {
       MonthlyPrice,
       IsActive = true,
       AllowsDevice = true,
+      HasDeviceLimit = false,
+      DeviceLimit = null,
     } = req.body;
+
+    const deviceLimitFields = normalizeDeviceLimitFields(
+      HasDeviceLimit,
+      DeviceLimit
+    );
+    if (deviceLimitFields.error) {
+      return res.status(400).json({ message: deviceLimitFields.error });
+    }
 
     const newPackage = await Packages.create({
       PackageName,
@@ -25,9 +65,26 @@ exports.createPackage = async (req, res) => {
       MonthlyPrice,
       IsActive: toBoolean(IsActive, true),
       AllowsDevice: toBoolean(AllowsDevice, true),
+      HasDeviceLimit: deviceLimitFields.HasDeviceLimit,
+      DeviceLimit: deviceLimitFields.DeviceLimit,
     });
 
-    res.status(200).json(newPackage);
+    await sequelize.query(
+      `UPDATE packages
+       SET HasDeviceLimit = :hasLimit,
+           DeviceLimit = :deviceLimit
+       WHERE PackageID = :id`,
+      {
+        replacements: {
+          hasLimit: deviceLimitFields.HasDeviceLimit ? 1 : 0,
+          deviceLimit: deviceLimitFields.DeviceLimit,
+          id: newPackage.PackageID,
+        },
+      }
+    );
+
+    const savedPackage = await Packages.findByPk(newPackage.PackageID);
+    res.status(200).json(savedPackage || newPackage);
   } catch (error) {
     logger.error(error);
     res.status(500).json({
@@ -53,8 +110,15 @@ exports.getPackages = async (req, res) => {
 
 exports.updatePackage = async (req, res) => {
   const { id } = req.params;
-  let { PackageName, PaymentPeriod, MonthlyPrice, IsActive, AllowsDevice } =
-    req.body;
+  let {
+    PackageName,
+    PaymentPeriod,
+    MonthlyPrice,
+    IsActive,
+    AllowsDevice,
+    HasDeviceLimit,
+    DeviceLimit,
+  } = req.body;
 
   if (
     PackageName === undefined ||
@@ -108,20 +172,51 @@ exports.updatePackage = async (req, res) => {
         ? toBoolean(AllowsDevice, existingPackage.AllowsDevice ?? true)
         : existingPackage.AllowsDevice ?? true;
 
-    await Packages.update(
+    const deviceLimitFields = normalizeDeviceLimitFields(
+      HasDeviceLimit !== undefined
+        ? HasDeviceLimit
+        : existingPackage.HasDeviceLimit,
+      DeviceLimit !== undefined ? DeviceLimit : existingPackage.DeviceLimit,
       {
-        PackageName: String(PackageName).trim(),
-        PaymentPeriod: String(parsedPeriod),
-        MonthlyPrice: parsedPrice,
-        IsActive: nextIsActive,
-        AllowsDevice: nextAllowsDevice,
-      },
-      {
-        where: { PackageID: id },
+        HasDeviceLimit: existingPackage.HasDeviceLimit ?? false,
       }
     );
 
-    return res.status(200).json({ message: `Package ${id} has been updated.` });
+    if (deviceLimitFields.error) {
+      return res.status(400).json({ message: deviceLimitFields.error });
+    }
+
+    await existingPackage.update({
+      PackageName: String(PackageName).trim(),
+      PaymentPeriod: String(parsedPeriod),
+      MonthlyPrice: parsedPrice,
+      IsActive: nextIsActive,
+      AllowsDevice: nextAllowsDevice,
+      HasDeviceLimit: deviceLimitFields.HasDeviceLimit,
+      DeviceLimit: deviceLimitFields.DeviceLimit,
+    });
+
+    // Guarantee device-limit columns are written even if ORM attribute cache is stale
+    await sequelize.query(
+      `UPDATE packages
+       SET HasDeviceLimit = :hasLimit,
+           DeviceLimit = :deviceLimit
+       WHERE PackageID = :id`,
+      {
+        replacements: {
+          hasLimit: deviceLimitFields.HasDeviceLimit ? 1 : 0,
+          deviceLimit: deviceLimitFields.DeviceLimit,
+          id,
+        },
+      }
+    );
+
+    const updatedPackage = await Packages.findByPk(id);
+
+    return res.status(200).json({
+      message: `Package ${id} has been updated.`,
+      package: updatedPackage,
+    });
   } catch (error) {
     logger.error(error);
     return res.status(500).json({
@@ -170,31 +265,45 @@ exports.getPackageList = async (req, res) => {
     let staffPackages;
     try {
       staffPackages = await sequelize.query(
-        `SELECT PackageID, PackageName, MonthlyPrice, AllowsDevice FROM packages WHERE IsActive = true`,
+        `SELECT PackageID, PackageName, MonthlyPrice, AllowsDevice, HasDeviceLimit, DeviceLimit FROM packages WHERE IsActive = true`,
         { type: sequelize.QueryTypes.SELECT }
       );
     } catch (columnError) {
-      console.log(
-        "AllowsDevice/IsActive column issue, falling back for package list"
-      );
+      console.log("Package column issue, falling back for package list");
       try {
         staffPackages = await sequelize.query(
-          `SELECT PackageID, PackageName, MonthlyPrice FROM packages WHERE IsActive = true`,
+          `SELECT PackageID, PackageName, MonthlyPrice, AllowsDevice FROM packages WHERE IsActive = true`,
           { type: sequelize.QueryTypes.SELECT }
         );
         staffPackages = staffPackages.map((pkg) => ({
           ...pkg,
-          AllowsDevice: true,
+          HasDeviceLimit: false,
+          DeviceLimit: null,
         }));
       } catch (fallbackError) {
-        staffPackages = await sequelize.query(
-          `SELECT PackageID, PackageName, MonthlyPrice FROM packages`,
-          { type: sequelize.QueryTypes.SELECT }
-        );
-        staffPackages = staffPackages.map((pkg) => ({
-          ...pkg,
-          AllowsDevice: true,
-        }));
+        try {
+          staffPackages = await sequelize.query(
+            `SELECT PackageID, PackageName, MonthlyPrice FROM packages WHERE IsActive = true`,
+            { type: sequelize.QueryTypes.SELECT }
+          );
+          staffPackages = staffPackages.map((pkg) => ({
+            ...pkg,
+            AllowsDevice: true,
+            HasDeviceLimit: false,
+            DeviceLimit: null,
+          }));
+        } catch (finalFallbackError) {
+          staffPackages = await sequelize.query(
+            `SELECT PackageID, PackageName, MonthlyPrice FROM packages`,
+            { type: sequelize.QueryTypes.SELECT }
+          );
+          staffPackages = staffPackages.map((pkg) => ({
+            ...pkg,
+            AllowsDevice: true,
+            HasDeviceLimit: false,
+            DeviceLimit: null,
+          }));
+        }
       }
     }
 
