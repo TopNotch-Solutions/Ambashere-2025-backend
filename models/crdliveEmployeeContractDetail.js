@@ -1,7 +1,7 @@
 const { DataTypes, Op } = require("sequelize");
 const sequelize = require("../config/database");
 
-const EXCLUDED_PACKAGES = ["Tango T49", "MTC Staff", "Tango per minute"];
+const EXCLUDED_PACKAGES = ["Tango T49", "MTC Staff", "Tango per minute", "Tango per second"];
 
 const excludedPackageSql = (column = "package") =>
   `${column} NOT IN (${EXCLUDED_PACKAGES.map((name) => `'${name.replace(/'/g, "''")}'`).join(", ")})`;
