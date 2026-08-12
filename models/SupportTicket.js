@@ -35,6 +35,18 @@ const SupportTicket = sequelize.define(
       allowNull: false,
       defaultValue: "pending",
     },
+    assignedAdminCode: {
+      type: DataTypes.STRING(50),
+      allowNull: true,
+    },
+    inProgressAt: {
+      type: DataTypes.DATE,
+      allowNull: true,
+    },
+    completedAt: {
+      type: DataTypes.DATE,
+      allowNull: true,
+    },
   },
   {
     tableName: "support_tickets",

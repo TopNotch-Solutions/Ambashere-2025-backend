@@ -1,4 +1,4 @@
-const { Op, fn, col } = require("sequelize");
+const { Op, fn, col, QueryTypes } = require("sequelize");
 const sequelize = require("../config/database");
 const SupportTicket = require("../models/SupportTicket");
 const Staff = require("../models/Staff");
@@ -318,10 +318,14 @@ exports.getAllTickets = async (req, res) => {
     const enriched = tickets.map((ticket) => {
       const plain = ticket.toJSON();
       const employee = employeeMap[plain.employeeCode];
+      const assignedAdmin = plain.assignedAdminCode
+        ? employeeMap[plain.assignedAdminCode]
+        : null;
       return {
         ...plain,
         fullName: employee?.FullName || "-",
         department: employee?.Department || "-",
+        assignedAdminName: assignedAdmin?.FullName || null,
       };
     });
 
@@ -359,6 +363,57 @@ exports.getTicketAnalytics = async (req, res) => {
       order: [[fn("DATE_FORMAT", col("createdAt"), "%Y-%m"), "ASC"]],
     });
 
+    const [timingStats] = await sequelize.query(
+      `
+      SELECT
+        AVG(CASE WHEN inProgressAt IS NOT NULL
+          THEN TIMESTAMPDIFF(MINUTE, createdAt, inProgressAt) END) AS avgPickupMinutes,
+        AVG(CASE WHEN inProgressAt IS NOT NULL AND completedAt IS NOT NULL
+          THEN TIMESTAMPDIFF(MINUTE, inProgressAt, completedAt) END) AS avgResolutionMinutes,
+        AVG(CASE WHEN completedAt IS NOT NULL
+          THEN TIMESTAMPDIFF(MINUTE, createdAt, completedAt) END) AS avgTotalMinutes
+      FROM support_tickets
+      `,
+      { type: QueryTypes.SELECT }
+    );
+
+    const byAssigneeRaw = await sequelize.query(
+      `
+      SELECT
+        assignedAdminCode,
+        COUNT(*) AS ticketCount,
+        SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) AS completedCount,
+        AVG(CASE WHEN inProgressAt IS NOT NULL AND completedAt IS NOT NULL
+          THEN TIMESTAMPDIFF(MINUTE, inProgressAt, completedAt) END) AS avgResolutionMinutes
+      FROM support_tickets
+      WHERE assignedAdminCode IS NOT NULL
+      GROUP BY assignedAdminCode
+      ORDER BY ticketCount DESC
+      `,
+      { type: QueryTypes.SELECT }
+    );
+
+    const allEmployees = await Staff.findAll({
+      attributes: ["EmployeeCode", "FullName"],
+    });
+    const employeeMap = Object.fromEntries(
+      allEmployees.map((e) => [normalizeEmployeeCode(e.EmployeeCode), e])
+    );
+
+    const byAssignee = byAssigneeRaw.map((row) => {
+      const admin = employeeMap[normalizeEmployeeCode(row.assignedAdminCode)];
+      return {
+        assignedAdminCode: row.assignedAdminCode,
+        assignedAdminName: admin?.FullName || row.assignedAdminCode,
+        ticketCount: Number(row.ticketCount) || 0,
+        completedCount: Number(row.completedCount) || 0,
+        avgResolutionMinutes:
+          row.avgResolutionMinutes != null
+            ? Math.round(Number(row.avgResolutionMinutes))
+            : null,
+      };
+    });
+
     res.status(200).json({
       total,
       pending,
@@ -366,6 +421,19 @@ exports.getTicketAnalytics = async (req, res) => {
       completed,
       byReason,
       perMonth,
+      avgPickupMinutes:
+        timingStats?.avgPickupMinutes != null
+          ? Math.round(Number(timingStats.avgPickupMinutes))
+          : null,
+      avgResolutionMinutes:
+        timingStats?.avgResolutionMinutes != null
+          ? Math.round(Number(timingStats.avgResolutionMinutes))
+          : null,
+      avgTotalMinutes:
+        timingStats?.avgTotalMinutes != null
+          ? Math.round(Number(timingStats.avgTotalMinutes))
+          : null,
+      byAssignee,
     });
   } catch (error) {
     logger.error("Error fetching support ticket analytics:", error);
@@ -377,9 +445,14 @@ exports.updateTicketStatus = async (req, res) => {
   try {
     const { id } = req.params;
     const { status: nextStatus, message: customMessage } = req.body;
+    const actingAdminCode = normalizeEmployeeCode(req.user?.EmployeeCode);
 
     if (!id) {
       return res.status(400).json({ message: "Ticket id is required." });
+    }
+
+    if (!actingAdminCode) {
+      return res.status(401).json({ message: "Admin employee code is required." });
     }
 
     const ticket = await SupportTicket.findByPk(id);
@@ -398,7 +471,32 @@ exports.updateTicketStatus = async (req, res) => {
       });
     }
 
+    if (currentStatus === "in progress") {
+      const assignedCode = normalizeEmployeeCode(ticket.assignedAdminCode);
+      if (!assignedCode || assignedCode !== actingAdminCode) {
+        const assignedAdmin = ticket.assignedAdminCode
+          ? await findStaffByEmployeeCode(ticket.assignedAdminCode)
+          : null;
+        return res.status(403).json({
+          message: assignedAdmin?.FullName
+            ? `This ticket is assigned to ${assignedAdmin.FullName}. Only the assigned admin can complete it.`
+            : "This ticket is assigned to another admin. Only the assigned admin can complete it.",
+        });
+      }
+    }
+
+    const now = new Date();
     ticket.status = nextStatus;
+
+    if (nextStatus === "in progress") {
+      ticket.assignedAdminCode = actingAdminCode;
+      ticket.inProgressAt = now;
+    }
+
+    if (nextStatus === "completed") {
+      ticket.completedAt = now;
+    }
+
     await ticket.save();
 
     const employee = await findStaffByEmployeeCode(ticket.employeeCode);
