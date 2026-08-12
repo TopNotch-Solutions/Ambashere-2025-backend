@@ -46,7 +46,7 @@ const logoPath = path.resolve(__dirname, '..', 'public', 'images', 'Ambasphere-L
   const mailOptions = {
   from: "ambasphere@mtc.com.na", 
   to: adminEmails,
-  cc: ['pwilhelm@mtc.com.na', 'JChristians@mtc.com.na'],
+  cc: ['pwilhelm@mtc.com.na', 'JChristians@mtc.com.na', 'RFangda@mtc.com.na'],
   subject: subject,
   attachments: [
     {

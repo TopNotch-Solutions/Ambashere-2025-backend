@@ -30,7 +30,7 @@ const sendFinanceTeamEmail = async (senderEmail, subject, handsetData) => {
     const mailOptions = {
       from: "ambasphere@mtc.com.na", 
       to: financeEmails,
-      cc: ['pwilhelm@mtc.com.na', 'JChristians@mtc.com.na'],
+      cc: ['pwilhelm@mtc.com.na', 'JChristians@mtc.com.na', "RFangda@mtc.com.na"],
       subject: subject,
       html: `
         <div style="font-family: Arial, sans-serif; color: #333; line-height: 1.6; max-width: 600px; margin: 0 auto;">
