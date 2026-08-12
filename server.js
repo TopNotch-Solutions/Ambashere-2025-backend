@@ -30,6 +30,7 @@ const notificationsRoutes = require("./routes/notificationsRoutes");
 const priceListRoutes = require("./routes/priceListRoutes");
 const eventsRoutes = require("./routes/eventsRoutes");
 const emailRoutes = require("./routes/emailRoutes");
+const supportTicketRoutes = require("./routes/supportTicketRoutes");
 const reportsRoutes = require("./routes/reportsRoutes");
 const financeRoutes = require("./routes/financeRoutes");
 const CdrLiveDeviceCost = require("./models/crdliveDeviceCost");
@@ -159,6 +160,9 @@ app.use("/events", eventsRoutes);
 
 // Email API Calls
 app.use("/email", emailRoutes);
+
+// Support ticket API Calls
+app.use("/support-tickets", supportTicketRoutes);
 
 // Reports API Calls
 app.use("/reports", reportsRoutes);

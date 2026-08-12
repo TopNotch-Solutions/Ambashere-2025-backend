@@ -223,6 +223,7 @@ function buildCalendarEventEmailHtml({
  */
 const sendNotificationEmail = async ({
   to,
+  cc,
   subject,
   message,
   intendedRecipientLabel,
@@ -240,6 +241,7 @@ const sendNotificationEmail = async ({
   const mailOptions = {
     from: "Ambasphere@mtc.com.na",
     to,
+    cc: cc?.length ? cc : undefined,
     subject,
     html: buildNotificationEmailHtml({ subject, message, intendedRecipientLabel }),
     attachments: EMAIL_ATTACHMENTS,
