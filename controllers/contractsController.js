@@ -10,6 +10,8 @@ const Contracts = require("../models/Contracts");
 const Packages = require("../models/Packages");
 const ContractData = require("../models/contractData");
 const CdrLiveEmployeeContractDetails = require("../models/crdliveEmployeeContractDetail");
+const { excludedPackageSql, excludedPackageWhere } =
+  CdrLiveEmployeeContractDetails;
 const AirtimeContractSubmission = require("../models/AirtimeContractSubmission");
 const Notifications = require("../models/Notifications");
 const { findStaffByEmployeeCode } = require("../utils/employeeCode");
@@ -399,6 +401,7 @@ exports.getStaffContracts = async (req, res) => {
         ON ${normalizedEmployeeCodeSql("c.employee_code")} COLLATE utf8mb4_general_ci =
            ${normalizedEmployeeCodeSql("e.EmployeeCode")} COLLATE utf8mb4_general_ci
       WHERE e.EmploymentStatus = 'Active'
+      AND ${excludedPackageSql("c.package")}
       ORDER BY c.createdAt DESC`,
       { type: sequelize.QueryTypes.SELECT }
     );
@@ -436,6 +439,7 @@ exports.getStaffContractById = async (req, res) => {
       INNER JOIN allocation a ON e.AllocationID = a.AllocationID
       WHERE ${normalizedEmployeeCodeSql("e.EmployeeCode")} COLLATE utf8mb4_general_ci = :employeeCode COLLATE utf8mb4_general_ci
       AND e.EmploymentStatus = 'Active'
+      AND ${excludedPackageSql("c.package")}
        ORDER BY c.contract_end_date DESC
       `;
 
@@ -453,6 +457,7 @@ exports.getStaffContractById = async (req, res) => {
       WHERE ${normalizedEmployeeCodeSql("e.EmployeeCode")} COLLATE utf8mb4_general_ci = :employeeCode COLLATE utf8mb4_general_ci
       AND c.subscription_status = 'Active'
       AND e.EmploymentStatus = 'Active'
+      AND ${excludedPackageSql("c.package")}
        ORDER BY c.contract_end_date DESC`;
 
     const contracts2 = await sequelize.query(query2, {
@@ -1374,6 +1379,7 @@ exports.getContractsCreatedPerMonth = async (req, res) => {
         [fn("DATE_FORMAT", col("contract_start_date"), "%Y-%m"), "month"],
         [fn("COUNT", col("id")), "count"],
       ],
+      where: excludedPackageWhere,
       group: [fn("DATE_FORMAT", col("contract_start_date"), "%Y-%m")],
       order: [[fn("DATE_FORMAT", col("contract_start_date"), "%Y-%m"), "ASC"]],
     });
@@ -1393,6 +1399,7 @@ exports.getContractsEndedPerMonth = async (req, res) => {
         [fn("COUNT", col("id")), "count"],
       ],
       where: {
+        ...excludedPackageWhere,
         contract_end_date: {
           [Op.ne]: null, // Only where contract_end_date is set
         },

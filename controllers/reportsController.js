@@ -5,6 +5,9 @@ const CdrLiveEmployeeContractDetails = require("../models/crdliveEmployeeContrac
 const CdrLiveEmployeeHandsetDetail = require("../models/crdliveEmployeeHandsetDetail");
 
 const CONTRACTS_TABLE = CdrLiveEmployeeContractDetails.tableName;
+const { excludedPackageSql } = CdrLiveEmployeeContractDetails;
+const EXCLUDED_CONTRACT_PACKAGE = excludedPackageSql("c.package");
+const EXCLUDED_CONTRACT_PACKAGE_UNALIASED = excludedPackageSql("package");
 const HANDSETS_TABLE = CdrLiveEmployeeHandsetDetail.tableName;
 const normalizedEmployeeCodeSql = (columnName) =>
   `REPLACE(REPLACE(UPPER(${columnName}), '-', ''), ' ', '')`;
@@ -136,6 +139,7 @@ exports.getCostAnalysisReport = async (req, res) => {
       INNER JOIN employees e ON ${EMPLOYEE_CONTRACT_JOIN}
       WHERE e.EmploymentStatus = 'Active' 
         AND ${ACTIVE_CONTRACT}
+        AND ${EXCLUDED_CONTRACT_PACKAGE}
         AND c.contract_start_date >= DATE_SUB(NOW(), INTERVAL 12 MONTH)
       GROUP BY DATE_FORMAT(c.contract_start_date, '%Y-%m')
       ORDER BY month ASC
@@ -150,6 +154,7 @@ exports.getCostAnalysisReport = async (req, res) => {
       FROM ${CONTRACTS_TABLE} c
       INNER JOIN employees e ON ${EMPLOYEE_CONTRACT_JOIN}
       WHERE e.EmploymentStatus = 'Active' AND ${ACTIVE_CONTRACT}
+        AND ${EXCLUDED_CONTRACT_PACKAGE}
       GROUP BY e.Department
       ORDER BY totalCost DESC
     `, { type: QueryTypes.SELECT });
@@ -162,6 +167,7 @@ exports.getCostAnalysisReport = async (req, res) => {
       FROM ${CONTRACTS_TABLE} c
       INNER JOIN employees e ON ${EMPLOYEE_CONTRACT_JOIN}
       WHERE e.EmploymentStatus = 'Active' AND ${ACTIVE_CONTRACT}
+        AND ${EXCLUDED_CONTRACT_PACKAGE}
     `, { type: QueryTypes.SELECT });
 
     const upfrontPayments = await sequelize.query(`
@@ -172,6 +178,7 @@ exports.getCostAnalysisReport = async (req, res) => {
       FROM ${CONTRACTS_TABLE} c
       INNER JOIN employees e ON ${EMPLOYEE_CONTRACT_JOIN}
       WHERE e.EmploymentStatus = 'Active' AND ${ACTIVE_CONTRACT}
+        AND ${EXCLUDED_CONTRACT_PACKAGE}
     `, { type: QueryTypes.SELECT });
 
     res.json({
@@ -199,6 +206,7 @@ exports.getBudgetReport = async (req, res) => {
       INNER JOIN employees e ON ${EMPLOYEE_CONTRACT_JOIN}
       WHERE e.EmploymentStatus = 'Active' 
         AND ${ACTIVE_CONTRACT}
+        AND ${EXCLUDED_CONTRACT_PACKAGE}
         AND DATE_FORMAT(c.contract_start_date, '%Y-%m') = :currentMonth
     `, { 
       replacements: { currentMonth },
@@ -214,6 +222,7 @@ exports.getBudgetReport = async (req, res) => {
       INNER JOIN employees e ON ${EMPLOYEE_CONTRACT_JOIN}
       WHERE e.EmploymentStatus = 'Active' 
         AND ${ACTIVE_CONTRACT}
+        AND ${EXCLUDED_CONTRACT_PACKAGE}
         AND c.contract_start_date >= DATE_SUB(NOW(), INTERVAL 6 MONTH)
       GROUP BY DATE_FORMAT(c.contract_start_date, '%Y-%m')
       ORDER BY month ASC
@@ -268,6 +277,7 @@ exports.getDeviceAllocationReport = async (req, res) => {
       FROM employees e
       LEFT JOIN ${CONTRACTS_TABLE} c ON ${EMPLOYEE_CONTRACT_JOIN}
         AND ${ACTIVE_CONTRACT}
+        AND ${EXCLUDED_CONTRACT_PACKAGE}
       LEFT JOIN ${HANDSETS_TABLE} h ON ${EMPLOYEE_HANDSET_JOIN}
       WHERE e.EmploymentStatus = 'Active'
       GROUP BY e.Department
@@ -299,6 +309,7 @@ exports.getPackageUtilizationReport = async (req, res) => {
       FROM packages p
       LEFT JOIN ${CONTRACTS_TABLE} c ON p.PackageName = c.package
         AND ${ACTIVE_CONTRACT}
+        AND ${EXCLUDED_CONTRACT_PACKAGE}
       GROUP BY p.PackageID, p.PackageName, p.MonthlyPrice, p.PaymentPeriod, p.IsActive
       ORDER BY usageCount DESC
     `, { type: QueryTypes.SELECT });
@@ -310,6 +321,7 @@ exports.getPackageUtilizationReport = async (req, res) => {
         COUNT(c.id) as usageCount
       FROM packages p
       LEFT JOIN ${CONTRACTS_TABLE} c ON p.PackageName = c.package AND ${ACTIVE_CONTRACT}
+        AND ${EXCLUDED_CONTRACT_PACKAGE}
       GROUP BY p.IsActive
     `, { type: QueryTypes.SELECT });
 
@@ -323,6 +335,7 @@ exports.getPackageUtilizationReport = async (req, res) => {
       INNER JOIN employees e ON ${EMPLOYEE_CONTRACT_JOIN}
       WHERE e.EmploymentStatus = 'Active' 
         AND ${ACTIVE_CONTRACT}
+        AND ${EXCLUDED_CONTRACT_PACKAGE}
         AND c.contract_start_date >= DATE_SUB(NOW(), INTERVAL 6 MONTH)
       GROUP BY DATE_FORMAT(c.contract_start_date, '%Y-%m'), p.PackageID, p.PackageName
       ORDER BY month ASC, usageCount DESC
@@ -350,6 +363,7 @@ exports.getBenefitUtilizationReport = async (req, res) => {
       FROM employees e
       LEFT JOIN ${CONTRACTS_TABLE} c ON ${EMPLOYEE_CONTRACT_JOIN}
         AND ${ACTIVE_CONTRACT}
+        AND ${EXCLUDED_CONTRACT_PACKAGE}
       WHERE e.EmploymentStatus = 'Active'
     `, { type: QueryTypes.SELECT });
 
@@ -362,6 +376,7 @@ exports.getBenefitUtilizationReport = async (req, res) => {
       FROM employees e
       LEFT JOIN ${CONTRACTS_TABLE} c ON ${EMPLOYEE_CONTRACT_JOIN}
         AND ${ACTIVE_CONTRACT}
+        AND ${EXCLUDED_CONTRACT_PACKAGE}
       WHERE e.EmploymentStatus = 'Active'
       GROUP BY e.Department
       ORDER BY utilizationPercentage DESC
@@ -375,6 +390,7 @@ exports.getBenefitUtilizationReport = async (req, res) => {
       INNER JOIN employees e ON ${EMPLOYEE_CONTRACT_JOIN}
       WHERE e.EmploymentStatus = 'Active' 
         AND ${ACTIVE_CONTRACT}
+        AND ${EXCLUDED_CONTRACT_PACKAGE}
         AND c.contract_start_date >= DATE_SUB(NOW(), INTERVAL 12 MONTH)
       GROUP BY DATE_FORMAT(c.contract_start_date, '%Y-%m')
       ORDER BY newAllocations DESC
@@ -403,6 +419,7 @@ exports.getTrendAnalysisReport = async (req, res) => {
       INNER JOIN employees e ON ${EMPLOYEE_CONTRACT_JOIN}
       WHERE e.EmploymentStatus = 'Active' 
         AND ${ACTIVE_CONTRACT}
+        AND ${EXCLUDED_CONTRACT_PACKAGE}
         AND c.contract_start_date >= DATE_SUB(NOW(), INTERVAL 12 MONTH)
       GROUP BY DATE_FORMAT(c.contract_start_date, '%Y-%m')
       ORDER BY month ASC
@@ -417,6 +434,7 @@ exports.getTrendAnalysisReport = async (req, res) => {
       FROM ${CONTRACTS_TABLE} c
       INNER JOIN employees e ON ${EMPLOYEE_CONTRACT_JOIN}
       WHERE e.EmploymentStatus = 'Active' AND ${ACTIVE_CONTRACT}
+        AND ${EXCLUDED_CONTRACT_PACKAGE}
       GROUP BY YEAR(c.contract_start_date)
       ORDER BY year DESC
     `, { type: QueryTypes.SELECT });
@@ -431,6 +449,7 @@ exports.getTrendAnalysisReport = async (req, res) => {
       INNER JOIN employees e ON ${EMPLOYEE_CONTRACT_JOIN}
       WHERE e.EmploymentStatus = 'Active' 
         AND ${ACTIVE_CONTRACT}
+        AND ${EXCLUDED_CONTRACT_PACKAGE}
         AND c.contract_start_date >= DATE_SUB(NOW(), INTERVAL 2 YEAR)
       GROUP BY MONTH(c.contract_start_date), MONTHNAME(c.contract_start_date)
       ORDER BY month ASC
@@ -454,8 +473,9 @@ exports.getComplianceReport = async (req, res) => {
       SELECT 
         c.subscription_status as ApprovalStatus,
         COUNT(*) as count,
-        ROUND(COUNT(*) * 100.0 / (SELECT COUNT(*) FROM ${CONTRACTS_TABLE}), 2) as percentage
+        ROUND(COUNT(*) * 100.0 / (SELECT COUNT(*) FROM ${CONTRACTS_TABLE} WHERE ${EXCLUDED_CONTRACT_PACKAGE_UNALIASED}), 2) as percentage
       FROM ${CONTRACTS_TABLE} c
+      WHERE ${EXCLUDED_CONTRACT_PACKAGE}
       GROUP BY c.subscription_status
       ORDER BY count DESC
     `, { type: QueryTypes.SELECT });
@@ -482,6 +502,7 @@ exports.getComplianceReport = async (req, res) => {
       FROM ${CONTRACTS_TABLE} c
       INNER JOIN employees e ON ${EMPLOYEE_CONTRACT_JOIN}
       WHERE c.subscription_status != 'Active'
+        AND ${EXCLUDED_CONTRACT_PACKAGE}
       ORDER BY daysPending DESC
     `, { type: QueryTypes.SELECT });
 
@@ -489,8 +510,9 @@ exports.getComplianceReport = async (req, res) => {
       SELECT 
         c.subscription_status as SubscriptionStatus,
         COUNT(*) as count,
-        ROUND(COUNT(*) * 100.0 / (SELECT COUNT(*) FROM ${CONTRACTS_TABLE}), 2) as percentage
+        ROUND(COUNT(*) * 100.0 / (SELECT COUNT(*) FROM ${CONTRACTS_TABLE} WHERE ${EXCLUDED_CONTRACT_PACKAGE_UNALIASED}), 2) as percentage
       FROM ${CONTRACTS_TABLE} c
+      WHERE ${EXCLUDED_CONTRACT_PACKAGE}
       GROUP BY c.subscription_status
       ORDER BY count DESC
     `, { type: QueryTypes.SELECT });
@@ -525,6 +547,7 @@ exports.getMonthlyReport = async (req, res) => {
       INNER JOIN employees e ON ${EMPLOYEE_CONTRACT_JOIN}
       WHERE e.EmploymentStatus = 'Active' 
         AND ${ACTIVE_CONTRACT}
+        AND ${EXCLUDED_CONTRACT_PACKAGE}
         AND DATE_FORMAT(c.contract_start_date, '%Y-%m') = :targetMonth
     `, { 
       replacements: { targetMonth },
@@ -541,6 +564,7 @@ exports.getMonthlyReport = async (req, res) => {
       INNER JOIN employees e ON ${EMPLOYEE_CONTRACT_JOIN}
       WHERE e.EmploymentStatus = 'Active' 
         AND ${ACTIVE_CONTRACT}
+        AND ${EXCLUDED_CONTRACT_PACKAGE}
         AND DATE_FORMAT(c.contract_start_date, '%Y-%m') = :targetMonth
       GROUP BY e.Department
       ORDER BY departmentCost DESC
@@ -580,6 +604,7 @@ exports.getQuarterlyReport = async (req, res) => {
       INNER JOIN employees e ON ${EMPLOYEE_CONTRACT_JOIN}
       WHERE e.EmploymentStatus = 'Active' 
         AND ${ACTIVE_CONTRACT}
+        AND ${EXCLUDED_CONTRACT_PACKAGE}
         AND c.contract_start_date >= :quarterStart
         AND c.contract_start_date <= :quarterEnd
     `, { 
@@ -596,6 +621,7 @@ exports.getQuarterlyReport = async (req, res) => {
       INNER JOIN employees e ON ${EMPLOYEE_CONTRACT_JOIN}
       WHERE e.EmploymentStatus = 'Active' 
         AND ${ACTIVE_CONTRACT}
+        AND ${EXCLUDED_CONTRACT_PACKAGE}
         AND c.contract_start_date >= :quarterStart
         AND c.contract_start_date <= :quarterEnd
       GROUP BY DATE_FORMAT(c.contract_start_date, '%Y-%m')
@@ -627,6 +653,7 @@ exports.getROIReport = async (req, res) => {
       FROM ${CONTRACTS_TABLE} c
       INNER JOIN employees e ON ${EMPLOYEE_CONTRACT_JOIN}
       WHERE e.EmploymentStatus = 'Active' AND ${ACTIVE_CONTRACT}
+        AND ${EXCLUDED_CONTRACT_PACKAGE}
     `, { type: QueryTypes.SELECT });
 
     const costPerEmployee = await sequelize.query(`
@@ -637,6 +664,7 @@ exports.getROIReport = async (req, res) => {
       FROM employees e
       LEFT JOIN ${CONTRACTS_TABLE} c ON ${EMPLOYEE_CONTRACT_JOIN}
         AND ${ACTIVE_CONTRACT}
+        AND ${EXCLUDED_CONTRACT_PACKAGE}
       WHERE e.EmploymentStatus = 'Active'
     `, { type: QueryTypes.SELECT });
 
@@ -648,6 +676,7 @@ exports.getROIReport = async (req, res) => {
       FROM employees e
       LEFT JOIN ${CONTRACTS_TABLE} c ON ${EMPLOYEE_CONTRACT_JOIN}
         AND ${ACTIVE_CONTRACT}
+        AND ${EXCLUDED_CONTRACT_PACKAGE}
       WHERE e.EmploymentStatus = 'Active'
     `, { type: QueryTypes.SELECT });
 
@@ -772,6 +801,7 @@ exports.getLimitViolationsReport = async (req, res) => {
       INNER JOIN employees e ON ${EMPLOYEE_CONTRACT_JOIN}
       INNER JOIN allocation a ON e.AllocationID = a.AllocationID
       WHERE e.EmploymentStatus = 'Active'
+        AND ${EXCLUDED_CONTRACT_PACKAGE}
       ORDER BY e.FullName ASC, c.contract_start_date DESC
     `,
       { type: QueryTypes.SELECT }

@@ -19,6 +19,7 @@ const Asset = require("../models/Assets");
 const CdrLiveEmployeeDetail = require("../models/crdliveEmployeeDetail");
 const NewEmployeeList = require("../models/NewEmployeeList");
 const AirtimeContractSubmission = require("../models/AirtimeContractSubmission");
+const { excludedPackageSql } = require("../models/crdliveEmployeeContractDetail");
 
 // Create Employee
 exports.createStaff = async (req, res) => {
@@ -570,7 +571,8 @@ exports.getStaffWithAirtimeAllocation = async (req, res) => {
                 ${normalizedEmployeeCodeSql("e.EmployeeCode")}
            WHERE ${normalizedEmployeeCodeSql("e.EmployeeCode")} = ?
              AND c.subscription_status = 'Active'
-             AND e.EmploymentStatus = 'Active'`,
+             AND e.EmploymentStatus = 'Active'
+             AND ${excludedPackageSql("c.package")}`,
           { replacements: [employeeCode] }
         );
 

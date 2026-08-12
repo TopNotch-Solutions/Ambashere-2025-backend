@@ -5,6 +5,7 @@ const Notifications = require("../models/Notifications");
 const Staff = require("../models/Staff");
 const CdrLiveEmployeeHandsetDetail = require("../models/crdliveEmployeeHandsetDetail");
 const CdrLiveEmployeeContractDetails = require("../models/crdliveEmployeeContractDetail");
+const { excludedPackageWhere } = CdrLiveEmployeeContractDetails;
 const {
   NOTIFICATION_EMAIL_TEST_ONLY,
   TEST_NOTIFICATION_OWNER_CODE,
@@ -299,6 +300,7 @@ async function processContractWeekRenewals() {
 
   const approachingEnd = await CdrLiveEmployeeContractDetails.findAll({
     where: {
+      ...excludedPackageWhere,
       subscription_status: "Active",
       contract_end_date: { [Op.between]: [sevenDaysStart, sevenDaysEnd] },
     },
@@ -332,6 +334,7 @@ async function processContractsExpiringToday() {
 
   const dueTodayContracts = await CdrLiveEmployeeContractDetails.findAll({
     where: {
+      ...excludedPackageWhere,
       subscription_status: "Active",
       contract_end_date: { [Op.between]: [todayStart, todayEnd] },
     },

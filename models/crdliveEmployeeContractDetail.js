@@ -1,5 +1,14 @@
-const { DataTypes } = require("sequelize");
+const { DataTypes, Op } = require("sequelize");
 const sequelize = require("../config/database");
+
+const EXCLUDED_PACKAGES = ["Tango T49", "MTC Staff", "Tango per minute"];
+
+const excludedPackageSql = (column = "package") =>
+  `${column} NOT IN (${EXCLUDED_PACKAGES.map((name) => `'${name.replace(/'/g, "''")}'`).join(", ")})`;
+
+const excludedPackageWhere = {
+  package: { [Op.notIn]: EXCLUDED_PACKAGES },
+};
 
 const CdrLiveEmployeeContractDetails = sequelize.define(
   "crdlive_employee_contract_details",
@@ -77,3 +86,6 @@ const CdrLiveEmployeeContractDetails = sequelize.define(
 );
 
 module.exports = CdrLiveEmployeeContractDetails;
+module.exports.EXCLUDED_PACKAGES = EXCLUDED_PACKAGES;
+module.exports.excludedPackageSql = excludedPackageSql;
+module.exports.excludedPackageWhere = excludedPackageWhere;
