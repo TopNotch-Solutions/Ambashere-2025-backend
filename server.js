@@ -246,7 +246,7 @@ cron.schedule(EVENT_NOTIFICATION_CRON, async () => {
   }
 });
 
-cron.schedule('0 9,15 * * *', withSyncLock("device-costs", async () => {
+cron.schedule('0 14,16 * * *', withSyncLock("device-costs", async () => {
   const transaction = await sequelize.transaction();
 
   try {
@@ -299,7 +299,7 @@ cron.schedule('0 9,15 * * *', withSyncLock("device-costs", async () => {
   }
 }));
 
-cron.schedule('0 9,15 * * *', withSyncLock("employee-contracts", async () => {
+cron.schedule('0 14,16 * * *', withSyncLock("employee-contracts", async () => {
   const transaction = await sequelize.transaction();
 
   try {
@@ -388,7 +388,7 @@ cron.schedule('0 9,15 * * *', withSyncLock("employee-contracts", async () => {
   }
 }));
 
-cron.schedule('0 9,15 * * *', withSyncLock("employee-details", async () => {
+cron.schedule('0 14,16 * * *', withSyncLock("employee-details", async () => {
   const transaction = await sequelize.transaction();
 
   try {
@@ -460,7 +460,7 @@ cron.schedule('0 9,15 * * *', withSyncLock("employee-details", async () => {
   }
 }));
 
-cron.schedule('0 9,15 * * *', withSyncLock("employee-handsets", async () => {
+cron.schedule('0 14,16 * * *', withSyncLock("employee-handsets", async () => {
   const transaction = await sequelize.transaction();
 
   try {

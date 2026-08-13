@@ -59,9 +59,15 @@ async function getStaffMapByEmployeeCodes(employeeCodes, attributes) {
   return employeeMap;
 }
 
+const ACTIVE_STATUS_FIRST = [
+  [sequelize.literal(`CASE WHEN status = 'active' THEN 0 ELSE 1 END`), "ASC"],
+];
+
 exports.getHandsets = async (req, res) => {
   try {
-    const handsets = await CdrLiveEmployeeHandsetDetail.findAll();
+    const handsets = await CdrLiveEmployeeHandsetDetail.findAll({
+      order: [...ACTIVE_STATUS_FIRST, ["createdAt", "DESC"]],
+    });
     console.log("My handset: ",handsets)
     res.status(200).json(handsets);
   } catch (error) {
@@ -78,7 +84,7 @@ exports.getHandsetsUser = async (req, res) => {
   try {
     const cdrHandsets = await CdrLiveEmployeeHandsetDetail.findAll({
       where: normalizedEmployeeCodeWhere("employee_code", employeeCode),
-      order: [["renewal_date", "DESC"]],
+      order: [...ACTIVE_STATUS_FIRST, ["renewal_date", "DESC"]],
     });
     const handsets = cdrHandsets.map((item) => ({
       id: item.id,
@@ -207,7 +213,7 @@ exports.getHandsetsByStaff = async (req, res) => {
 
     const cdrHandsets = await CdrLiveEmployeeHandsetDetail.findAll({
       where: normalizedEmployeeCodeWhere("employee_code", employeeCode),
-      order: [["renewal_date", "DESC"]],
+      order: [...ACTIVE_STATUS_FIRST, ["renewal_date", "DESC"]],
     });
 
     const handsets = cdrHandsets.map((item) => ({
@@ -418,7 +424,9 @@ exports.postHandset = async (req, res) => {
 }
 exports.getHandsetsOfStaff = async (req, res) => {
   try {
-    const staffHandsets = await CdrLiveEmployeeHandsetDetail.findAll({ order: [["createdAt", "DESC"]] });
+    const staffHandsets = await CdrLiveEmployeeHandsetDetail.findAll({
+      order: [...ACTIVE_STATUS_FIRST, ["createdAt", "DESC"]],
+    });
     console.log("staffHandsets today:", staffHandsets);
     res.status(200).json(staffHandsets);
   } catch (error) {
