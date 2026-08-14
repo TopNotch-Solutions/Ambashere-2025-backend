@@ -2,20 +2,13 @@ const sequelize = require("../config/database");
 const { Op, QueryTypes } = require("sequelize");
 const HandsetContractSubmission = require("../models/HandsetContractSubmission");
 const CdrLiveEmployeeHandsetDetail = require("../models/crdliveEmployeeHandsetDetail");
-const Staff = require("../models/Staff");
-const Notifications = require("../models/Notifications");
 const logger = require("../middlewares/errorLogger");
 const {
   normalizeEmployeeCode,
   normalizedEmployeeCodeWhere,
   findStaffByEmployeeCode,
 } = require("../utils/employeeCode");
-const { sendNotificationEmail } = require("../middlewares/notificationEmail");
-const { sendEmail } = require("../middlewares/email");
-const {
-  NOTIFICATION_EMAIL_TEST_ONLY,
-  NOTIFICATION_EMAIL_RECIPIENT,
-} = require("../jobs/notificationEmailConfig");
+const { notifySubmissionParties } = require("../middlewares/submissionNotify");
 
 const OPEN_SUBMISSION_STATUSES = ["pending", "in progress"];
 const STATUS_TRANSITIONS = {
@@ -75,18 +68,18 @@ async function getEligibility(employeeCode) {
     where: normalizedEmployeeCodeWhere("employee_code", normalized),
   });
 
+  if (cdrHandsets.length === 0) {
+    return {
+      canApply: true,
+      reason:
+        "You do not have an existing staff handset, so you are entitled to apply for an initial device. If you have an existing handset, please log a ticket in the Support section.",
+    };
+  }
+
   const activeHandsets = cdrHandsets.filter((item) => {
     const status = String(item.status || "").trim().toLowerCase();
     return status === "active";
   });
-
-  if (activeHandsets.length === 0) {
-    return {
-      canApply: true,
-      reason:
-        "You do not have an existing staff handset, so you are entitled to apply for an initial device.",
-    };
-  }
 
   const beingFinalised = activeHandsets.some(
     (item) => !hasRenewalDate(item.renewal_date)
@@ -115,13 +108,6 @@ async function getEligibility(employeeCode) {
 }
 
 async function notifyHandsetContractSubmission({ employeeCode, employee, submission }) {
-  let io;
-  try {
-    io = require("../server").io;
-  } catch (error) {
-    io = null;
-  }
-
   const employeeName = employee?.FullName || submission.employee_name || employeeCode;
   const details =
     `Device: ${submission.device}\n` +
@@ -144,85 +130,16 @@ async function notifyHandsetContractSubmission({ employeeCode, employee, submiss
     `https://ambasphere.mtc.com.na.` +
     `Please review and process the submission in New Handset Contracts.`;
 
-  const userNotification = await Notifications.create({
-    EmployeeCode: employeeCode,
-    Type: "Handset Contract Submitted",
-    Message: userMessage,
-    Viewed: false,
-    Created_At: new Date(),
-    RecipientEmployeeCode: employeeCode,
+  await notifySubmissionParties({
+    employeeCode,
+    employee,
+    userType: "Handset Contract Submitted",
+    userMessage,
+    adminType: "New Handset Contract Submission",
+    adminMessage,
+    userEmailSubject: "Staff Handset Request Submitted",
+    adminEmailSubject: `New Handset Contract Submission - ${employeeName} (${employeeCode})`,
   });
-
-  if (io) {
-    io.emit("notification", userNotification);
-  }
-
-  const adminUsers = await Staff.findAll({
-    where: { RoleID: 1 },
-    attributes: ["EmployeeCode", "Email", "FullName"],
-  });
-
-  for (const admin of adminUsers) {
-    const adminNotification = await Notifications.create({
-      EmployeeCode: employeeCode,
-      Type: "New Handset Contract Submission",
-      Message: adminMessage,
-      Viewed: false,
-      Created_At: new Date(),
-      RecipientEmployeeCode: admin.EmployeeCode,
-    });
-    if (io) {
-      io.emit("notification", adminNotification);
-    }
-  }
-
-  const resolveEmailRecipient = (intendedEmail, intendedLabel) => {
-    if (NOTIFICATION_EMAIL_TEST_ONLY) {
-      return {
-        to: NOTIFICATION_EMAIL_RECIPIENT,
-        intendedRecipientLabel: intendedLabel,
-      };
-    }
-    return {
-      to: intendedEmail,
-      intendedRecipientLabel: undefined,
-    };
-  };
-
-  if (employee?.Email) {
-    try {
-      const { to, intendedRecipientLabel } = resolveEmailRecipient(
-        employee.Email,
-        `${employeeName} <${employee.Email}>`
-      );
-      await sendNotificationEmail({
-        to,
-        subject: "Staff Handset Request Submitted",
-        message: userMessage,
-        intendedRecipientLabel,
-      });
-    } catch (emailError) {
-      logger.error(
-        "Error sending handset submission email to employee:",
-        emailError
-      );
-    }
-  }
-
-  if (employee?.Email || adminUsers.some((admin) => admin.Email)) {
-    try {
-      await sendEmail(
-        employee?.Email || adminUsers[0].Email,
-        `New Handset Contract Submission - ${employeeName} (${employeeCode})`,
-        adminMessage
-      );
-    } catch (emailError) {
-      logger.error(
-        "Error sending handset submission email to admins:",
-        emailError
-      );
-    }
-  }
 }
 
 exports.getHandsetSubmissionEligibility = async (req, res) => {

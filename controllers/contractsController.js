@@ -13,14 +13,8 @@ const CdrLiveEmployeeContractDetails = require("../models/crdliveEmployeeContrac
 const { excludedPackageSql, excludedPackageWhere } =
   CdrLiveEmployeeContractDetails;
 const AirtimeContractSubmission = require("../models/AirtimeContractSubmission");
-const Notifications = require("../models/Notifications");
 const { findStaffByEmployeeCode } = require("../utils/employeeCode");
-const { sendNotificationEmail } = require("../middlewares/notificationEmail");
-const { sendEmail } = require("../middlewares/email");
-const {
-  NOTIFICATION_EMAIL_TEST_ONLY,
-  NOTIFICATION_EMAIL_RECIPIENT,
-} = require("../jobs/notificationEmailConfig");
+const { notifySubmissionParties } = require("../middlewares/submissionNotify");
 
 const OPEN_SUBMISSION_STATUSES = ["pending", "in progress"];
 
@@ -66,13 +60,6 @@ async function notifyAirtimeContractSubmission({
   monthlyPayment,
   limitCheck,
 }) {
-  let io;
-  try {
-    io = require("../server").io;
-  } catch (error) {
-    io = null;
-  }
-
   const employeeName = employee?.FullName || employeeCode;
   const details = buildSubmissionDetailsMessage(submissions);
   const packageCount = submissions.length;
@@ -96,90 +83,19 @@ async function notifyAirtimeContractSubmission({
     `Limit Check: ${limitCheck || "-"}\n` +
     `Request Date: ${new Date().toLocaleDateString()}\n\n` +
     `${details}\n\n` +
-    `https://ambasphere.mtc.com.na.`+
+    `https://ambasphere.mtc.com.na.` +
     `Please review and process the submission in Airtime Contracts.`;
 
-  const userNotification = await Notifications.create({
-    EmployeeCode: employeeCode,
-    Type: "Airtime Contract Submitted",
-    Message: userMessage,
-    Viewed: false,
-    Created_At: new Date(),
-    RecipientEmployeeCode: employeeCode,
+  await notifySubmissionParties({
+    employeeCode,
+    employee,
+    userType: "Airtime Contract Submitted",
+    userMessage,
+    adminType: "New Airtime Contract Submission",
+    adminMessage,
+    userEmailSubject: "Airtime Contract Submitted",
+    adminEmailSubject: `New Airtime Contract Submission - ${employeeName} (${employeeCode})`,
   });
-
-  if (io) {
-    io.emit("notification", userNotification);
-  }
-
-  const adminUsers = await Staff.findAll({
-    where: { RoleID: 1 },
-    attributes: ["EmployeeCode", "Email", "FullName"],
-  });
-
-  for (const admin of adminUsers) {
-    const adminNotification = await Notifications.create({
-      EmployeeCode: employeeCode,
-      Type: "New Airtime Contract Submission",
-      Message: adminMessage,
-      Viewed: false,
-      Created_At: new Date(),
-      RecipientEmployeeCode: admin.EmployeeCode,
-    });
-    if (io) {
-      io.emit("notification", adminNotification);
-    }
-  }
-
-  const resolveEmailRecipient = (intendedEmail, intendedLabel) => {
-    if (NOTIFICATION_EMAIL_TEST_ONLY) {
-      return {
-        to: NOTIFICATION_EMAIL_RECIPIENT,
-        intendedRecipientLabel: intendedLabel,
-      };
-    }
-    return {
-      to: intendedEmail,
-      intendedRecipientLabel: undefined,
-    };
-  };
-
-  // Employee email — same branded notification layout as other staff emails
-  if (employee?.Email) {
-    try {
-      const { to, intendedRecipientLabel } = resolveEmailRecipient(
-        employee.Email,
-        `${employeeName} <${employee.Email}>`
-      );
-      await sendNotificationEmail({
-        to,
-        subject: "Airtime Contract Submitted",
-        message: userMessage,
-        intendedRecipientLabel,
-      });
-    } catch (emailError) {
-      logger.error(
-        "Error sending airtime submission email to employee:",
-        emailError
-      );
-    }
-  }
-
-  // Admin email — same Ambasphere Notification System layout used elsewhere
-  if (employee?.Email || adminUsers.some((admin) => admin.Email)) {
-    try {
-      await sendEmail(
-        employee?.Email || adminUsers[0].Email,
-        `New Airtime Contract Submission - ${employeeName} (${employeeCode})`,
-        adminMessage
-      );
-    } catch (emailError) {
-      logger.error(
-        "Error sending airtime submission email to admins:",
-        emailError
-      );
-    }
-  }
 }
 
 function normalizeEmployeeCode(employeeCode) {

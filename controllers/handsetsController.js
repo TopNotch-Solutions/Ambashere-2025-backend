@@ -1,5 +1,6 @@
 const Handsets = require("../models/Handsets");
 const CdrLiveEmployeeHandsetDetail = require("../models/crdliveEmployeeHandsetDetail");
+const HandsetContractSubmission = require("../models/HandsetContractSubmission");
 const sequelize = require("../config/database");
 const logger = require("../middlewares/errorLogger");
 const Staff = require("../models/Staff");
@@ -36,6 +37,66 @@ function normalizedEmployeeCodeWhere(columnName, employeeCode) {
 
 function normalizedEmployeeCodeSql(columnName) {
   return `REPLACE(REPLACE(UPPER(${columnName}), '-', ''), ' ', '')`;
+}
+
+function formatSubmissionStatus(status) {
+  const value = String(status || "pending").trim().toLowerCase();
+  if (value === "in progress") return "In Progress";
+  if (value === "pending") return "Pending";
+  if (value === "completed") return "Completed";
+  return status || "Pending";
+}
+
+function mapSubmissionToStaffHandset(submission) {
+  const status = formatSubmissionStatus(submission.subscription_status);
+  const deviceName = submission.device;
+  const price = Number(submission.device_price) || 0;
+  const excess = Number(submission.excess_payment) || 0;
+
+  return {
+    id: `hs-${submission.id}`,
+    isSubmission: true,
+    EmployeeCode: submission.employeeCode,
+    employee_code: submission.employeeCode,
+    employee_name: submission.employee_name,
+    FullName: submission.employee_name,
+    HandsetName: deviceName,
+    part_no: deviceName,
+    description: deviceName,
+    HandsetPrice: price,
+    cost: price,
+    AccessFeePaid: excess,
+    excess_price: excess,
+    Status: status,
+    status: status,
+    RequestDate: submission.contract_submitted_date,
+    createdAt: submission.contract_submitted_date,
+    CollectionDate: null,
+    collected_date: null,
+    RenewalDate: null,
+    renewal_date: null,
+    FixedAssetCode: "",
+    fixed_asset_code: "",
+    MRNumber: "",
+    mr_number: "",
+  };
+}
+
+async function getOpenHandsetSubmissions(employeeCode = null) {
+  const where = {
+    subscription_status: { [Op.in]: ["pending", "in progress"] },
+  };
+
+  if (employeeCode) {
+    where[Op.and] = [
+      normalizedEmployeeCodeWhere("employeeCode", employeeCode),
+    ];
+  }
+
+  return HandsetContractSubmission.findAll({
+    where,
+    order: [["contract_submitted_date", "DESC"]],
+  });
 }
 
 async function findStaffByEmployeeCode(employeeCode) {
@@ -86,19 +147,23 @@ exports.getHandsetsUser = async (req, res) => {
       where: normalizedEmployeeCodeWhere("employee_code", employeeCode),
       order: [...ACTIVE_STATUS_FIRST, ["renewal_date", "DESC"]],
     });
-    const handsets = cdrHandsets.map((item) => ({
-      id: item.id,
-      EmployeeCode: item.employee_code,
-      HandsetName: item.description || item.part_no,
-      HandsetPrice: Number(item.cost || 0),
-      MRNumber: item.mr_number,
-      FixedAssetCode: item.fixed_asset_code,
-      RenewalDate: item.renewal_date,
-      CollectionDate: item.collected_date,
-      Status: item.status === "active" ? "Active" : "Completed",
-      RequestDate: item.createdAt,
-    }));
-    console.log("My handsets: ", handsets);
+    const submissions = await getOpenHandsetSubmissions(employeeCode);
+    const appliedHandsets = submissions.map(mapSubmissionToStaffHandset);
+    const handsets = [
+      ...appliedHandsets,
+      ...cdrHandsets.map((item) => ({
+        id: item.id,
+        EmployeeCode: item.employee_code,
+        HandsetName: item.description || item.part_no,
+        HandsetPrice: Number(item.cost || 0),
+        MRNumber: item.mr_number,
+        FixedAssetCode: item.fixed_asset_code,
+        RenewalDate: item.renewal_date,
+        CollectionDate: item.collected_date,
+        Status: item.status === "active" ? "Active" : "Completed",
+        RequestDate: item.createdAt,
+      })),
+    ];
     res.status(200).json(handsets);
   } catch (error) {
     logger.error("Error retrieving device details:", error);
@@ -427,8 +492,9 @@ exports.getHandsetsOfStaff = async (req, res) => {
     const staffHandsets = await CdrLiveEmployeeHandsetDetail.findAll({
       order: [...ACTIVE_STATUS_FIRST, ["createdAt", "DESC"]],
     });
-    console.log("staffHandsets today:", staffHandsets);
-    res.status(200).json(staffHandsets);
+    const submissions = await getOpenHandsetSubmissions();
+    const appliedHandsets = submissions.map(mapSubmissionToStaffHandset);
+    res.status(200).json([...appliedHandsets, ...staffHandsets]);
   } catch (error) {
     logger.error("Error retrieving handset details by staff:", error);
     res.status(500).json({

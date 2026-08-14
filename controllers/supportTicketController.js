@@ -4,7 +4,7 @@ const SupportTicket = require("../models/SupportTicket");
 const Staff = require("../models/Staff");
 const Notifications = require("../models/Notifications");
 const logger = require("../middlewares/errorLogger");
-const { sendEmail } = require("../middlewares/email");
+const { notifySubmissionParties } = require("../middlewares/submissionNotify");
 const { sendNotificationEmail } = require("../middlewares/notificationEmail");
 const {
   NOTIFICATION_EMAIL_TEST_ONLY,
@@ -206,40 +206,16 @@ exports.createTicket = async (req, res) => {
       `Reason: ${subject}\n\n` +
       `Message:\n${message}`;
 
-    await notifyEmployee({
+    await notifySubmissionParties({
       employeeCode,
-      type: "Support Ticket Submitted",
-      message: employeeMessage,
+      employee,
+      userType: "Support Ticket Submitted",
+      userMessage: employeeMessage,
+      adminType: "New Support Ticket",
+      adminMessage,
+      userEmailSubject: `Support Ticket ${ticketNumber} Received`,
+      adminEmailSubject: `New Support Ticket ${ticketNumber} - ${employee.FullName} (${employeeCode})`,
     });
-
-    await notifyAdmins({
-      employeeCode,
-      type: "New Support Ticket",
-      message: adminMessage,
-    });
-
-    try {
-      await sendEmail(email, subject, message);
-    } catch (emailError) {
-      logger.error("Error sending support ticket email to admins:", emailError);
-    }
-
-    if (employee.Email) {
-      try {
-        const { to, intendedRecipientLabel } = resolveEmailRecipient(
-          employee.Email,
-          `${employee.FullName} <${employee.Email}>`
-        );
-        await sendNotificationEmail({
-          to,
-          subject: `Support Ticket ${ticketNumber} Received`,
-          message: employeeMessage,
-          intendedRecipientLabel,
-        });
-      } catch (emailError) {
-        logger.error("Error sending support ticket email to employee:", emailError);
-      }
-    }
 
     res.status(201).json({
       success: true,
