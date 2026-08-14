@@ -46,6 +46,7 @@ const CdrLiveEmployeeContractDetails = require("./models/crdliveEmployeeContract
 const CdrLiveEmployeeDetail = require("./models/crdliveEmployeeDetail");
 const CdrLiveEmployeeHandsetDetail = require("./models/crdliveEmployeeHandsetDetail");
 const AirtimeContractSubmission = require("./models/AirtimeContractSubmission");
+const HandsetContractSubmission = require("./models/HandsetContractSubmission");
 
 /** Keep last row for each key (API payload dedupe). */
 const dedupeByKey = (rows, getKey) => {

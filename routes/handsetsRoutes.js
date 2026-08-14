@@ -1,6 +1,7 @@
 const express = require("express");
 const router = express.Router();
 const handsetsController = require("../controllers/handsetsController");
+const handsetSubmissionsController = require("../controllers/handsetSubmissionsController");
 const { tokenAuthMiddleware, checkAllUsers, checkAdmin, checkAdminUser, checkFinance } = require("../middlewares/authMiddleware");
 
 router.use(tokenAuthMiddleware);
@@ -10,6 +11,37 @@ router.get("/staffHandsets", checkAdmin, handsetsController.getHandsetsOfStaff);
 router.get("/for-review", checkAdmin, handsetsController.getHandsetRequestsForReview);
 router.get("/pending-approvals", checkAdminUser, handsetsController.getPendingHandsetApprovals);
 router.get("/renewal-verification", checkAdmin, handsetsController.verifyRenewalDueDates);
+
+router.get(
+  "/submissions/total",
+  checkAdmin,
+  handsetSubmissionsController.getHandsetSubmissionsTotal
+);
+router.get(
+  "/submissions/perMonth",
+  checkAdmin,
+  handsetSubmissionsController.getHandsetSubmissionsPerMonth
+);
+router.get(
+  "/submissions/active",
+  checkAdmin,
+  handsetSubmissionsController.getActiveHandsetSubmissions
+);
+router.get(
+  "/submissions/eligibility/:employeeCode",
+  checkAllUsers,
+  handsetSubmissionsController.getHandsetSubmissionEligibility
+);
+router.post(
+  "/submissions",
+  checkAdminUser,
+  handsetSubmissionsController.createHandsetSubmission
+);
+router.put(
+  "/submissions/:id/status",
+  checkAdmin,
+  handsetSubmissionsController.updateHandsetSubmissionStatus
+);
 
 // Finance verification endpoints
 router.post("/verify-probation/:id", checkFinance, handsetsController.verifyProbation);
