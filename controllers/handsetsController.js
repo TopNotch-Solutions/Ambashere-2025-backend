@@ -281,18 +281,23 @@ exports.getHandsetsByStaff = async (req, res) => {
       order: [...ACTIVE_STATUS_FIRST, ["renewal_date", "DESC"]],
     });
 
-    const handsets = cdrHandsets.map((item) => ({
-      id: item.id,
-      EmployeeCode: item.employee_code,
-      HandsetName: item.description || item.part_no,
-      HandsetPrice: Number(item.cost || 0),
-      MRNumber: item.mr_number,
-      FixedAssetCode: item.fixed_asset_code,
-      RenewalDate: item.renewal_date,
-      CollectionDate: item.collected_date,
-      Status: item.status === "active" ? "Active" : "Completed",
-      RequestDate: item.createdAt,
-    }));
+    const submissions = await getOpenHandsetSubmissions(employeeCode);
+    const appliedHandsets = submissions.map(mapSubmissionToStaffHandset);
+    const handsets = [
+      ...appliedHandsets,
+      ...cdrHandsets.map((item) => ({
+        id: item.id,
+        EmployeeCode: item.employee_code,
+        HandsetName: item.description || item.part_no,
+        HandsetPrice: Number(item.cost || 0),
+        MRNumber: item.mr_number,
+        FixedAssetCode: item.fixed_asset_code,
+        RenewalDate: item.renewal_date,
+        CollectionDate: item.collected_date,
+        Status: item.status === "active" ? "Active" : "Completed",
+        RequestDate: item.createdAt,
+      })),
+    ];
 
     return res.json({ handsets });
 
