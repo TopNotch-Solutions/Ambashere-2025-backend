@@ -260,12 +260,13 @@ exports.getActiveHandsetSubmissions = async (req, res) => {
        LEFT JOIN employees a
          ON ${normalizedEmployeeCodeSql("s.assignedAdminCode")} =
             ${normalizedEmployeeCodeSql("a.EmployeeCode")}
-       WHERE s.subscription_status IN ('pending', 'in progress')
+       WHERE s.subscription_status IN ('pending', 'in progress', 'completed')
        ORDER BY
          CASE s.subscription_status
            WHEN 'pending' THEN 1
            WHEN 'in progress' THEN 2
-           ELSE 3
+           WHEN 'completed' THEN 3
+           ELSE 4
          END,
          s.contract_submitted_date DESC`,
       { type: QueryTypes.SELECT }
