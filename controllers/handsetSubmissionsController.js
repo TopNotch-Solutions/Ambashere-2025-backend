@@ -251,11 +251,15 @@ exports.getActiveHandsetSubmissions = async (req, res) => {
     const submissions = await sequelize.query(
       `SELECT
         s.*,
-        e.FullName
+        e.FullName,
+        a.FullName AS assignedAdminName
        FROM handset_contract_submissions s
        LEFT JOIN employees e
          ON ${normalizedEmployeeCodeSql("s.employeeCode")} =
             ${normalizedEmployeeCodeSql("e.EmployeeCode")}
+       LEFT JOIN employees a
+         ON ${normalizedEmployeeCodeSql("s.assignedAdminCode")} =
+            ${normalizedEmployeeCodeSql("a.EmployeeCode")}
        WHERE s.subscription_status IN ('pending', 'in progress')
        ORDER BY
          CASE s.subscription_status
@@ -277,9 +281,14 @@ exports.updateHandsetSubmissionStatus = async (req, res) => {
   try {
     const { id } = req.params;
     const { subscription_status: nextStatus } = req.body;
+    const actingAdminCode = normalizeEmployeeCode(req.user?.EmployeeCode);
 
     if (!id) {
       return res.status(400).json({ message: "Submission id is required." });
+    }
+
+    if (!actingAdminCode) {
+      return res.status(401).json({ message: "Admin employee code is required." });
     }
 
     const submission = await HandsetContractSubmission.findByPk(id);
@@ -298,7 +307,24 @@ exports.updateHandsetSubmissionStatus = async (req, res) => {
       });
     }
 
+    if (currentStatus === "in progress") {
+      const assignedCode = normalizeEmployeeCode(submission.assignedAdminCode);
+      if (!assignedCode || assignedCode !== actingAdminCode) {
+        const assignedAdmin = submission.assignedAdminCode
+          ? await findStaffByEmployeeCode(submission.assignedAdminCode)
+          : null;
+        return res.status(403).json({
+          message: assignedAdmin?.FullName
+            ? `This contract is assigned to ${assignedAdmin.FullName}. Only the assigned admin can complete it.`
+            : "This contract is assigned to another admin. Only the assigned admin can complete it.",
+        });
+      }
+    }
+
     submission.subscription_status = nextStatus;
+    if (nextStatus === "in progress") {
+      submission.assignedAdminCode = actingAdminCode;
+    }
     await submission.save();
 
     res.status(200).json({

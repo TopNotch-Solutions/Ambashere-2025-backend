@@ -6,6 +6,7 @@ const addTransactionTypeToAirtimeSubmissions = require("./migrations/add_transac
 const addTopUpAmountToAirtimeSubmissions = require("./migrations/add_top_up_amount_to_airtime_submissions");
 const removeUserNameFromEmployees = require("./migrations/remove_username_from_employees");
 const createHandsetContractSubmissions = require("./migrations/create_handset_contract_submissions");
+const addAssignedAdminToContractSubmissions = require("./migrations/add_assigned_admin_to_contract_submissions");
 const sequelize = require("./config/database");
 
 const runMigration = async () => {
@@ -20,6 +21,7 @@ const runMigration = async () => {
     await addDeviceLimitToPackages();
     await createAirtimeContractSubmissions.up();
     await createHandsetContractSubmissions.up();
+    await addAssignedAdminToContractSubmissions.up();
     await addTransactionTypeToAirtimeSubmissions();
     await addTopUpAmountToAirtimeSubmissions();
     await removeUserNameFromEmployees();

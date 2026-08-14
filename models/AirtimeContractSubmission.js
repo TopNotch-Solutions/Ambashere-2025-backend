@@ -73,6 +73,10 @@ const AirtimeContractSubmission = sequelize.define(
       allowNull: false,
       defaultValue: "pending",
     },
+    assignedAdminCode: {
+      type: DataTypes.STRING(50),
+      allowNull: true,
+    },
   },
   {
     tableName: "airtime_contract_submissions",

@@ -41,6 +41,10 @@ const HandsetContractSubmission = sequelize.define(
       allowNull: false,
       defaultValue: "pending",
     },
+    assignedAdminCode: {
+      type: DataTypes.STRING(50),
+      allowNull: true,
+    },
   },
   {
     tableName: "handset_contract_submissions",
