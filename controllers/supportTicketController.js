@@ -13,9 +13,17 @@ const {
 const { io } = require("../server");
 
 const STATUS_TRANSITIONS = {
-  pending: "in progress",
-  "in progress": "completed",
+  pending: ["in progress", "completed"],
+  "in progress": ["completed"],
 };
+
+function getAllowedNextStatuses(currentStatus) {
+  return STATUS_TRANSITIONS[String(currentStatus || "").trim().toLowerCase()] || [];
+}
+
+function isAllowedStatusTransition(currentStatus, nextStatus) {
+  return getAllowedNextStatuses(currentStatus).includes(nextStatus);
+}
 
 function buildDefaultStatusMessage(ticket, nextStatus) {
   const statusLabel =
@@ -481,13 +489,14 @@ exports.updateTicketStatus = async (req, res) => {
     }
 
     const currentStatus = ticket.status;
-    const allowedNext = STATUS_TRANSITIONS[currentStatus];
+    const allowedNextStatuses = getAllowedNextStatuses(currentStatus);
 
-    if (!allowedNext || nextStatus !== allowedNext) {
+    if (!isAllowedStatusTransition(currentStatus, nextStatus)) {
+      const allowedLabel = allowedNextStatuses.length
+        ? allowedNextStatuses.map((status) => `'${status}'`).join(" or ")
+        : "no further status";
       return res.status(400).json({
-        message: `Invalid status transition. From '${currentStatus}' you can only move to '${
-          allowedNext || "no further status"
-        }'.`,
+        message: `Invalid status transition. From '${currentStatus}' you can only move to ${allowedLabel}.`,
       });
     }
 
@@ -515,6 +524,9 @@ exports.updateTicketStatus = async (req, res) => {
 
     if (nextStatus === "completed") {
       ticket.completedAt = now;
+      if (currentStatus === "pending") {
+        ticket.assignedAdminCode = actingAdminCode;
+      }
     }
 
     await ticket.save();
