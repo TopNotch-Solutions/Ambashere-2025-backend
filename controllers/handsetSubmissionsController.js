@@ -39,6 +39,10 @@ function isRenewalDue(value) {
   return due.getTime() <= today.getTime();
 }
 
+function handsetStatus(item) {
+  return String(item.status || "").trim().toLowerCase();
+}
+
 function normalizedEmployeeCodeSql(columnName) {
   return `REPLACE(REPLACE(UPPER(${columnName}), '-', ''), ' ', '')`;
 }
@@ -66,6 +70,11 @@ async function getEligibility(employeeCode) {
 
   const cdrHandsets = await CdrLiveEmployeeHandsetDetail.findAll({
     where: normalizedEmployeeCodeWhere("employee_code", normalized),
+    order: [
+      ["renewal_date", "DESC"],
+      ["collected_date", "DESC"],
+      ["id", "DESC"],
+    ],
   });
 
   if (cdrHandsets.length === 0) {
@@ -76,27 +85,45 @@ async function getEligibility(employeeCode) {
     };
   }
 
-  const activeHandsets = cdrHandsets.filter((item) => {
-    const status = String(item.status || "").trim().toLowerCase();
-    return status === "active";
-  });
-
-  const beingFinalised = activeHandsets.some(
-    (item) => !hasRenewalDate(item.renewal_date)
+  const activeHandsets = cdrHandsets.filter(
+    (item) => handsetStatus(item) === "active"
   );
-  if (beingFinalised) {
+
+  if (activeHandsets.length > 0) {
+    const beingFinalised = activeHandsets.some(
+      (item) => !hasRenewalDate(item.renewal_date)
+    );
+    if (beingFinalised) {
+      return {
+        canApply: false,
+        reason:
+          "Your current staff handset is still being finalised and does not have a renewal date yet. You cannot apply for another device until it is completed.",
+      };
+    }
+
+    if (activeHandsets.some((item) => isRenewalDue(item.renewal_date))) {
+      return {
+        canApply: true,
+        reason:
+          "Your new staff handset due date has been reached, so you may apply.",
+      };
+    }
+
     return {
       canApply: false,
       reason:
-        "Your current staff handset is still being finalised and does not have a renewal date yet. You cannot apply for another device until it is completed.",
+        "Your current staff handset is not yet due for renewal. A new device can only be requested when the due date is reached.",
     };
   }
 
-  const due = activeHandsets.some((item) => isRenewalDue(item.renewal_date));
-  if (due) {
+  const primaryDoneHandset = cdrHandsets.find(
+    (item) => handsetStatus(item) === "done"
+  );
+  if (primaryDoneHandset && isRenewalDue(primaryDoneHandset.renewal_date)) {
     return {
       canApply: true,
-      reason: "Your new staff handset due date has been reached, so you may apply.",
+      reason:
+        "Your staff handset contract has ended and your renewal date has been reached, so you may apply.",
     };
   }
 

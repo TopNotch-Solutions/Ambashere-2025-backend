@@ -64,8 +64,18 @@ function messageToHtml(message) {
     .join("");
 }
 
-function buildNotificationEmailHtml({ subject, message, intendedRecipientLabel }) {
+function buildNotificationEmailHtml({
+  subject,
+  message,
+  intendedRecipientLabel,
+  isAutomated = true,
+}) {
   const year = new Date().getFullYear();
+  const footerNoteHtml = isAutomated
+    ? `<p style="margin: 0 0 16px 0; font-size: 12px; color: #a0aec0; line-height: 1.5;">
+                This is an automated message. Please do not reply.
+              </p>`
+    : "";
 
   return `
 <!DOCTYPE html>
@@ -120,9 +130,7 @@ function buildNotificationEmailHtml({ subject, message, intendedRecipientLabel }
               <p style="margin: 0 0 8px 0; font-size: 14px; color: #ffffff; font-weight: 600;">
                 Ambasphere Notification System
               </p>
-              <p style="margin: 0 0 16px 0; font-size: 12px; color: #a0aec0; line-height: 1.5;">
-                This is an automated message. Please do not reply.
-              </p>
+              ${footerNoteHtml}
               <hr style="border: none; border-top: 1px solid #2d4a6f; margin: 0 0 16px 0;" />
               <p style="margin: 0; font-size: 12px; color: #a0aec0;">
                 &copy; ${year} MTC Namibia. All rights reserved.
@@ -227,6 +235,7 @@ const sendNotificationEmail = async ({
   subject,
   message,
   intendedRecipientLabel,
+  isAutomated = true,
 }) => {
   if (NOTIFICATION_EMAIL_TEST_ONLY) {
     const normalizedTo = String(to).trim().toLowerCase();
@@ -243,7 +252,12 @@ const sendNotificationEmail = async ({
     to,
     cc: cc?.length ? cc : undefined,
     subject,
-    html: buildNotificationEmailHtml({ subject, message, intendedRecipientLabel }),
+    html: buildNotificationEmailHtml({
+      subject,
+      message,
+      intendedRecipientLabel,
+      isAutomated,
+    }),
     attachments: EMAIL_ATTACHMENTS,
   };
 

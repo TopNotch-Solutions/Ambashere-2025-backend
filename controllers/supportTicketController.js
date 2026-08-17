@@ -262,10 +262,54 @@ exports.getAllTickets = async (req, res) => {
   try {
     const { page, limit, offset } = parsePagination(req, 40);
     const status = String(req.query.status || "all").trim().toLowerCase();
+    const search = String(req.query.search || "").trim();
 
     const where = {};
     if (status && status !== "all") {
       where.status = status;
+    }
+
+    if (search) {
+      const likePattern = `%${search}%`;
+      const matchingStaff = await Staff.findAll({
+        where: {
+          [Op.or]: [
+            { FullName: { [Op.like]: likePattern } },
+            { Department: { [Op.like]: likePattern } },
+            { EmployeeCode: { [Op.like]: likePattern } },
+          ],
+        },
+        attributes: ["EmployeeCode"],
+      });
+
+      const matchedCodes = [
+        ...new Set(
+          matchingStaff.flatMap((staffMember) => {
+            const code = String(staffMember.EmployeeCode || "").trim();
+            const normalized = normalizeEmployeeCode(code);
+            return [code, normalized].filter(Boolean);
+          })
+        ),
+      ];
+
+      const searchConditions = [
+        { ticketNumber: { [Op.like]: likePattern } },
+        { employeeCode: { [Op.like]: likePattern } },
+        { email: { [Op.like]: likePattern } },
+        { reason: { [Op.like]: likePattern } },
+        { message: { [Op.like]: likePattern } },
+        { status: { [Op.like]: likePattern } },
+        { assignedAdminCode: { [Op.like]: likePattern } },
+      ];
+
+      if (matchedCodes.length) {
+        searchConditions.push(
+          { employeeCode: { [Op.in]: matchedCodes } },
+          { assignedAdminCode: { [Op.in]: matchedCodes } }
+        );
+      }
+
+      where[Op.or] = searchConditions;
     }
 
     const { rows: tickets, count: total } = await SupportTicket.findAndCountAll({
@@ -486,6 +530,7 @@ exports.updateTicketStatus = async (req, res) => {
       nextStatus,
       customMessage
     );
+    const hasCustomMessage = Boolean(String(customMessage || "").trim());
 
     await notifyEmployee({
       employeeCode: ticket.employeeCode,
@@ -508,6 +553,7 @@ exports.updateTicketStatus = async (req, res) => {
           intendedRecipientLabel: NOTIFICATION_EMAIL_TEST_ONLY
             ? `${intendedRecipientLabel || ""} Admins would be CC'd in production.`.trim()
             : intendedRecipientLabel,
+          isAutomated: !hasCustomMessage,
         });
       } catch (emailError) {
         logger.error("Error sending ticket status email:", emailError);
