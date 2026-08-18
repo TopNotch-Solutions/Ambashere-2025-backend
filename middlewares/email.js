@@ -147,6 +147,17 @@ const ERROR_RECIPIENTS = [
 const sendErrorEmail = async (errorInfo) => {
   const message = errorInfo?.message || 'Unknown error';
   const stack = errorInfo?.stack || '';
+  const name = errorInfo?.name || '';
+  const combined = `${name}\n${message}\n${stack}`;
+
+  if (
+    name === 'TokenExpiredError' ||
+    /TokenExpiredError/i.test(combined) ||
+    /\bjwt expired\b/i.test(combined)
+  ) {
+    return;
+  }
+
   const timestamp = new Date().toISOString();
   const environment = process.env.NODE_ENV || 'development';
   const year = new Date().getFullYear();

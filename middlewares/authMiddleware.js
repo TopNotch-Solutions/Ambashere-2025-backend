@@ -19,20 +19,20 @@ module.exports.tokenAuthMiddleware = (req, res, next) => {
     req.user = decoded;
     next();
   } catch (err) {
-    logError(err);
     if (err instanceof jwt.TokenExpiredError) {
       console.log("Token expired, refreshing required.");
       return res.status(401).json({
         status: "FAILURE",
         message: "Token expired. Please refresh.",
       });
-    } else {
-      console.log("Token error:", err.message);
-      return res.status(400).json({
-        status: "FAILURE",
-        message: "Invalid token.",
-      });
     }
+
+    logError(err);
+    console.log("Token error:", err.message);
+    return res.status(400).json({
+      status: "FAILURE",
+      message: "Invalid token.",
+    });
   }
 };
 

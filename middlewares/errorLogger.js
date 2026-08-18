@@ -29,13 +29,26 @@ const normalizeErrorInfo = (message, errorOrMeta) => {
   return { message, stack: '' };
 };
 
+function shouldSkipErrorEmail(info) {
+  const message = String(info?.message || '');
+  const stack = String(info?.stack || '');
+  const name = String(info?.name || '');
+  const combined = `${name}\n${message}\n${stack}`;
+
+  return (
+    name === 'TokenExpiredError' ||
+    /TokenExpiredError/i.test(combined) ||
+    /\bjwt expired\b/i.test(combined)
+  );
+}
+
 class ErrorEmailTransport extends Transport {
   log(info, callback) {
     setImmediate(() => {
       this.emit('logged', info);
     });
 
-    if (info.level === 'error') {
+    if (info.level === 'error' && !shouldSkipErrorEmail(info)) {
       const { sendErrorEmail } = require('./email');
       sendErrorEmail(info).catch((err) => {
         originalConsoleError('Error email transport failed:', err.message);
