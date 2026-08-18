@@ -84,7 +84,7 @@ async function notifyAirtimeContractSubmission({
     `Limit Check: ${limitCheck || "-"}\n` +
     `Request Date: ${new Date().toLocaleDateString()}\n\n` +
     `${details}\n\n` +
-    `https://ambasphere.mtc.com.na.` +
+    `https://ambasphere.mtc.com.na\n\n` +
     `Please review and process the submission in Airtime Contracts.`;
 
   await notifySubmissionParties({
