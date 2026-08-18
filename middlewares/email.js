@@ -140,7 +140,6 @@ const logoPath = path.resolve(__dirname, '..', 'public', 'images', 'Ambasphere-L
 
 const ERROR_RECIPIENTS = [
   'pwilhelm@mtc.com.na',
-  'JChristians@mtc.com.na',
   'RFangda@mtc.com.na',
 ];
 
