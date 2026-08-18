@@ -104,6 +104,8 @@ const io = socketIo(server, {
     exposedHeaders: ['Authorization', 'X-Refresh-Token'],
   },
 });
+const { setSocketIo } = require("./config/socket");
+setSocketIo(io);
 
 app.use(securityHeaders);
 
@@ -573,5 +575,3 @@ io.on("connection", (socket) => {
     logError("Socket error:", error);
   });
 });
-
-module.exports.io = io;

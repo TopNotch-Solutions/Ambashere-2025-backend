@@ -2,6 +2,7 @@ const { logError } = require('../middlewares/errorLogger');
 const { Op } = require("sequelize");
 const sequelize = require("../config/database");
 const logger = require("../middlewares/errorLogger");
+const { getSocketIo } = require("../config/socket");
 const Events = require("../models/Events");
 const Notifications = require("../models/Notifications");
 const Staff = require("../models/Staff");
@@ -172,16 +173,11 @@ async function sendEventEmails(event, employees) {
 }
 
 function emitNotifications(createdNotifications) {
-  try {
-    const { io } = require("../server");
-    if (!io) return;
+  const io = getSocketIo();
+  if (!io) return;
 
-    for (const notification of createdNotifications) {
-      io.emit("notification", notification);
-    }
-  } catch (error) {
-    logError(error);
-    logger.warn("Could not emit calendar notifications via socket:", error.message);
+  for (const notification of createdNotifications) {
+    io.emit("notification", notification);
   }
 }
 

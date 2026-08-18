@@ -1,6 +1,6 @@
 const { logError } = require('../middlewares/errorLogger');
 const Notifications = require("../models/Notifications");
-const { io } = require("../server");
+const { getSocketIo } = require("../config/socket");
 const Staff = require("../models/Staff");
 const sequelize = require("../config/database");
 const { Op } = require("sequelize");
@@ -40,7 +40,7 @@ function userNotificationFilter(employeeCode) {
 
 exports.createNotification = async (req, res) => {
   try {
-    console.log("IO Object:", io); // Log the io object
+    console.log("IO Object:", getSocketIo()); // Log the io object
     const { EmployeeCode, Type, Message, Recipient } = req.body;
     const normalizedEmployeeCode = normalizeEmployeeCode(EmployeeCode);
     const notification = await Notifications.create({
@@ -53,6 +53,7 @@ exports.createNotification = async (req, res) => {
     });
 
     // Emit notification via Socket.IO
+    const io = getSocketIo();
     if (io) {
       io.emit("notification", notification);
     } else {
@@ -100,8 +101,8 @@ exports.createAdminNotifications = async (req, res) => {
       notifications.push(notification);
 
       // Emit notification to admin (can be made user-specific with rooms)
-      if (io) {
-        io.emit("notification", notification);
+      if (getSocketIo()) {
+        getSocketIo().emit("notification", notification);
       }
     }
 
@@ -117,8 +118,8 @@ exports.createAdminNotifications = async (req, res) => {
       RecipientEmployeeCode: normalizedEmployeeCode,
     });
 
-    if (io) {
-      io.emit("notification", userNotification); // Optional: restrict to the user
+    if (getSocketIo()) {
+      getSocketIo().emit("notification", userNotification);
     }
 
     res.status(201).json({

@@ -1,7 +1,7 @@
 const { logError } = require('../middlewares/errorLogger');
 const Staff = require("../models/Staff");
 const Notifications = require("../models/Notifications");
-const logger = require("./errorLogger");
+const { getSocketIo } = require("../config/socket");
 const { sendNotificationEmail } = require("./notificationEmail");
 const {
   NOTIFICATION_EMAIL_TEST_ONLY,
@@ -25,13 +25,7 @@ async function notifySubmissionParties({
   userEmailSubject,
   adminEmailSubject,
 }) {
-  let io;
-  try {
-    io = require("../server").io;
-  } catch (error) {
-    logError(error);
-    io = null;
-  }
+  const io = getSocketIo();
 
   const userNotification = await Notifications.create({
     EmployeeCode: employeeCode,

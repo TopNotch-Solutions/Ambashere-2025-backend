@@ -11,7 +11,7 @@ const {
   NOTIFICATION_EMAIL_TEST_ONLY,
   NOTIFICATION_EMAIL_RECIPIENT,
 } = require("../jobs/notificationEmailConfig");
-const { io } = require("../server");
+const { getSocketIo } = require("../config/socket");
 
 const STATUS_TRANSITIONS = {
   pending: ["in progress", "completed"],
@@ -146,6 +146,7 @@ async function notifyEmployee({ employeeCode, type, message }) {
     RecipientEmployeeCode: employeeCode,
   });
 
+  const io = getSocketIo();
   if (io) {
     io.emit("notification", notification);
   }
@@ -168,6 +169,7 @@ async function notifyAdmins({ employeeCode, type, message }) {
       Created_At: new Date(),
       RecipientEmployeeCode: admin.EmployeeCode,
     });
+    const io = getSocketIo();
     if (io) {
       io.emit("notification", notification);
     }

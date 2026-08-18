@@ -1,5 +1,4 @@
 const { createLogger, transports, format, Transport } = require('winston');
-const { sendErrorEmail } = require('./email');
 
 const originalConsoleError = console.error.bind(console);
 let isForwardingConsoleError = false;
@@ -37,6 +36,7 @@ class ErrorEmailTransport extends Transport {
     });
 
     if (info.level === 'error') {
+      const { sendErrorEmail } = require('./email');
       sendErrorEmail(info).catch((err) => {
         originalConsoleError('Error email transport failed:', err.message);
       });
