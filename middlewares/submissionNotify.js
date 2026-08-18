@@ -1,3 +1,4 @@
+const { logError } = require('../middlewares/errorLogger');
 const Staff = require("../models/Staff");
 const Notifications = require("../models/Notifications");
 const logger = require("./errorLogger");
@@ -28,6 +29,7 @@ async function notifySubmissionParties({
   try {
     io = require("../server").io;
   } catch (error) {
+    logError(error);
     io = null;
   }
 
@@ -115,7 +117,7 @@ async function notifySubmissionParties({
       });
     }
   } catch (emailError) {
-    logger.error("Error sending submission emails:", emailError);
+    logError("Error sending submission emails:", emailError);
   }
 }
 

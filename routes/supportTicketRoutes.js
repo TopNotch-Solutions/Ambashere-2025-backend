@@ -11,6 +11,7 @@ router.use(tokenAuthMiddleware);
 
 router.post("/", checkTempUsers, supportTicketController.createTicket);
 router.get("/mine", checkTempUsers, supportTicketController.getMyTickets);
+router.put("/:id/cancel", checkTempUsers, supportTicketController.cancelTicket);
 router.get("/", checkAdmin, supportTicketController.getAllTickets);
 router.get("/analytics", checkAdmin, supportTicketController.getTicketAnalytics);
 router.put("/:id/status", checkAdmin, supportTicketController.updateTicketStatus);

@@ -3,7 +3,8 @@ const sequelize = require("../config/database");
 const SupportTicket = require("../models/SupportTicket");
 const Staff = require("../models/Staff");
 const Notifications = require("../models/Notifications");
-const logger = require("../middlewares/errorLogger");
+const logger = require('../middlewares/errorLogger');
+const { logError } = logger;
 const { notifySubmissionParties } = require("../middlewares/submissionNotify");
 const { sendNotificationEmail } = require("../middlewares/notificationEmail");
 const {
@@ -231,7 +232,7 @@ exports.createTicket = async (req, res) => {
       ticket,
     });
   } catch (error) {
-    logger.error("Error creating support ticket:", error);
+    logError("Error creating support ticket:", error);
     res.status(500).json({
       success: false,
       message: "Failed to submit support ticket.",
@@ -261,7 +262,7 @@ exports.getMyTickets = async (req, res) => {
       pagination: buildPaginationMeta(total, page, limit),
     });
   } catch (error) {
-    logger.error("Error fetching employee support tickets:", error);
+    logError("Error fetching employee support tickets:", error);
     res.status(500).json({ message: "Failed to fetch support tickets." });
   }
 };
@@ -325,7 +326,7 @@ exports.getAllTickets = async (req, res) => {
       order: [
         [
           sequelize.literal(
-            `CASE status WHEN 'pending' THEN 1 WHEN 'in progress' THEN 2 WHEN 'completed' THEN 3 ELSE 4 END`
+            `CASE status WHEN 'pending' THEN 1 WHEN 'in progress' THEN 2 WHEN 'completed' THEN 3 WHEN 'cancelled' THEN 4 ELSE 5 END`
           ),
           "ASC",
         ],
@@ -362,18 +363,19 @@ exports.getAllTickets = async (req, res) => {
       pagination: buildPaginationMeta(total, page, limit),
     });
   } catch (error) {
-    logger.error("Error fetching all support tickets:", error);
+    logError("Error fetching all support tickets:", error);
     res.status(500).json({ message: "Failed to fetch support tickets." });
   }
 };
 
 exports.getTicketAnalytics = async (req, res) => {
   try {
-    const [total, pending, inProgress, completed] = await Promise.all([
+    const [total, pending, inProgress, completed, cancelled] = await Promise.all([
       SupportTicket.count(),
       SupportTicket.count({ where: { status: "pending" } }),
       SupportTicket.count({ where: { status: "in progress" } }),
       SupportTicket.count({ where: { status: "completed" } }),
+      SupportTicket.count({ where: { status: "cancelled" } }),
     ]);
 
     const byReason = await SupportTicket.findAll({
@@ -447,6 +449,7 @@ exports.getTicketAnalytics = async (req, res) => {
       pending,
       inProgress,
       completed,
+      cancelled,
       byReason,
       perMonth,
       avgPickupMinutes:
@@ -464,7 +467,7 @@ exports.getTicketAnalytics = async (req, res) => {
       byAssignee,
     });
   } catch (error) {
-    logger.error("Error fetching support ticket analytics:", error);
+    logError("Error fetching support ticket analytics:", error);
     res.status(500).json({ message: "Failed to fetch ticket analytics." });
   }
 };
@@ -489,6 +492,13 @@ exports.updateTicketStatus = async (req, res) => {
     }
 
     const currentStatus = ticket.status;
+
+    if (currentStatus === "cancelled") {
+      return res.status(400).json({
+        message: "Cancelled tickets cannot be updated.",
+      });
+    }
+
     const allowedNextStatuses = getAllowedNextStatuses(currentStatus);
 
     if (!isAllowedStatusTransition(currentStatus, nextStatus)) {
@@ -568,7 +578,7 @@ exports.updateTicketStatus = async (req, res) => {
           isAutomated: !hasCustomMessage,
         });
       } catch (emailError) {
-        logger.error("Error sending ticket status email:", emailError);
+        logError("Error sending ticket status email:", emailError);
       }
     }
 
@@ -577,7 +587,77 @@ exports.updateTicketStatus = async (req, res) => {
       ticket,
     });
   } catch (error) {
-    logger.error("Error updating support ticket status:", error);
+    logError("Error updating support ticket status:", error);
     res.status(500).json({ message: "Failed to update ticket status." });
+  }
+};
+
+exports.cancelTicket = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const employeeCode = normalizeEmployeeCode(req.user?.EmployeeCode);
+
+    if (!id) {
+      return res.status(400).json({ message: "Ticket id is required." });
+    }
+
+    if (!employeeCode) {
+      return res.status(400).json({ message: "Employee code is required." });
+    }
+
+    const ticket = await SupportTicket.findByPk(id);
+    if (!ticket) {
+      return res.status(404).json({ message: "Ticket not found." });
+    }
+
+    if (normalizeEmployeeCode(ticket.employeeCode) !== employeeCode) {
+      return res.status(403).json({ message: "You can only cancel your own tickets." });
+    }
+
+    if (ticket.status !== "pending") {
+      return res.status(400).json({
+        message: "Only pending tickets can be cancelled.",
+      });
+    }
+
+    const employee = await findStaffByEmployeeCode(ticket.employeeCode);
+    const employeeName = employee?.FullName || ticket.employeeCode;
+
+    ticket.status = "cancelled";
+    ticket.cancelledAt = new Date();
+    await ticket.save();
+
+    const employeeMessage =
+      `Your support ticket ${ticket.ticketNumber} has been cancelled.\n\n` +
+      `Reason: ${ticket.reason}\n\n` +
+      "If you still need assistance, you can submit a new support ticket at any time.";
+
+    const adminMessage =
+      `A support ticket has been cancelled by the employee.\n\n` +
+      `Ticket Number: ${ticket.ticketNumber}\n` +
+      `Employee: ${employeeName} (${ticket.employeeCode})\n` +
+      `Email: ${ticket.email}\n` +
+      `Reason: ${ticket.reason}\n\n` +
+      `Original message:\n${ticket.message}`;
+
+    await notifySubmissionParties({
+      employeeCode: ticket.employeeCode,
+      employee,
+      userType: "Support Ticket Cancelled",
+      userMessage: employeeMessage,
+      adminType: "Support Ticket Cancelled",
+      adminMessage,
+      userEmailSubject: `Support Ticket ${ticket.ticketNumber} Cancelled`,
+      adminEmailSubject: `Support Ticket Cancelled — ${ticket.ticketNumber} (${employeeName})`,
+    });
+
+    res.status(200).json({
+      success: true,
+      message: "Support ticket cancelled successfully.",
+      ticket,
+    });
+  } catch (error) {
+    logError("Error cancelling support ticket:", error);
+    res.status(500).json({ message: "Failed to cancel support ticket." });
   }
 };

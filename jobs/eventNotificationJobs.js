@@ -1,3 +1,4 @@
+const { logError } = require('../middlewares/errorLogger');
 const { Op } = require("sequelize");
 const sequelize = require("../config/database");
 const logger = require("../middlewares/errorLogger");
@@ -49,7 +50,7 @@ async function ensureNotificationSentColumn() {
 
     notificationColumnReady = true;
   } catch (error) {
-    logger.error("Failed to ensure events.NotificationSent column:", error);
+    logError("Failed to ensure events.NotificationSent column:", error);
     throw error;
   }
 }
@@ -179,6 +180,7 @@ function emitNotifications(createdNotifications) {
       io.emit("notification", notification);
     }
   } catch (error) {
+    logError(error);
     logger.warn("Could not emit calendar notifications via socket:", error.message);
   }
 }
@@ -243,7 +245,7 @@ async function processDueEventNotifications() {
         await sendEventEmails(event, employees);
         emailSent = true;
       } catch (emailError) {
-        logger.error(
+        logError(
           `Calendar event ${event.EventID} in-app notifications saved, but email delivery failed:`,
           emailError
         );
@@ -274,7 +276,7 @@ async function processDueEventNotifications() {
       );
     } catch (error) {
       await transaction.rollback();
-      logger.error(
+      logError(
         `Failed to process calendar event notification ${event.EventID}:`,
         error
       );

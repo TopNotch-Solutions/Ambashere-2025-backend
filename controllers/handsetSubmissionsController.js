@@ -2,7 +2,8 @@ const sequelize = require("../config/database");
 const { Op, QueryTypes } = require("sequelize");
 const HandsetContractSubmission = require("../models/HandsetContractSubmission");
 const CdrLiveEmployeeHandsetDetail = require("../models/crdliveEmployeeHandsetDetail");
-const logger = require("../middlewares/errorLogger");
+const logger = require('../middlewares/errorLogger');
+const { logError } = logger;
 const {
   normalizeEmployeeCode,
   normalizedEmployeeCodeWhere,
@@ -169,6 +170,38 @@ async function notifyHandsetContractSubmission({ employeeCode, employee, submiss
   });
 }
 
+async function notifyHandsetContractCancellation({ employeeCode, employee, submission }) {
+  const employeeName = employee?.FullName || submission.employee_name || employeeCode;
+  const details =
+    `Device: ${submission.device}\n` +
+    `Device Price: ${formatMoneyNa(submission.device_price)}\n` +
+    `Excess Payment: ${formatMoneyNa(submission.excess_payment)}`;
+
+  const userMessage =
+    `Your staff handset request has been cancelled.\n\n` +
+    `Employee: ${employeeName} (${employeeCode})\n` +
+    `${details}\n\n` +
+    `You may submit a new staff handset request when you are eligible.`;
+
+  const adminMessage =
+    `A staff handset request has been cancelled by the employee.\n\n` +
+    `Employee: ${employeeName} (${employeeCode})\n` +
+    `Email: ${employee?.Email || "-"}\n` +
+    `Request Date: ${new Date(submission.contract_submitted_date).toLocaleDateString()}\n\n` +
+    `${details}`;
+
+  await notifySubmissionParties({
+    employeeCode,
+    employee,
+    userType: "Handset Contract Cancelled",
+    userMessage,
+    adminType: "Handset Contract Cancelled",
+    adminMessage,
+    userEmailSubject: "Staff Handset Request Cancelled",
+    adminEmailSubject: `Handset Contract Cancelled - ${employeeName} (${employeeCode})`,
+  });
+}
+
 exports.getHandsetSubmissionEligibility = async (req, res) => {
   try {
     const employeeCode = req.params.employeeCode;
@@ -178,7 +211,7 @@ exports.getHandsetSubmissionEligibility = async (req, res) => {
     const eligibility = await getEligibility(employeeCode);
     res.status(200).json(eligibility);
   } catch (error) {
-    logger.error("Error checking handset submission eligibility:", error);
+    logError("Error checking handset submission eligibility:", error);
     res.status(500).json({ message: "Failed to check eligibility." });
   }
 };
@@ -235,14 +268,14 @@ exports.createHandsetSubmission = async (req, res) => {
           submission,
         });
       } catch (notifyError) {
-        logger.error(
+        logError(
           "Handset contract created but notification failed:",
           notifyError
         );
       }
     });
   } catch (error) {
-    logger.error("Error creating handset submission:", error);
+    logError("Error creating handset submission:", error);
     res.status(500).json({ message: "Failed to submit handset request." });
   }
 };
@@ -252,7 +285,7 @@ exports.getHandsetSubmissionsTotal = async (req, res) => {
     const count = await HandsetContractSubmission.count();
     res.status(200).json({ count });
   } catch (error) {
-    logger.error("Error counting handset submissions:", error);
+    logError("Error counting handset submissions:", error);
     res.status(500).json({ message: "Failed to count handset submissions." });
   }
 };
@@ -268,7 +301,7 @@ exports.getHandsetSubmissionsPerMonth = async (req, res) => {
     );
     res.status(200).json(rows);
   } catch (error) {
-    logger.error("Error fetching handset submissions per month:", error);
+    logError("Error fetching handset submissions per month:", error);
     res.status(500).json({ message: "Failed to fetch submissions per month." });
   }
 };
@@ -287,20 +320,21 @@ exports.getActiveHandsetSubmissions = async (req, res) => {
        LEFT JOIN employees a
          ON ${normalizedEmployeeCodeSql("s.assignedAdminCode")} =
             ${normalizedEmployeeCodeSql("a.EmployeeCode")}
-       WHERE s.subscription_status IN ('pending', 'in progress', 'completed')
+       WHERE s.subscription_status IN ('pending', 'in progress', 'completed', 'cancelled')
        ORDER BY
          CASE s.subscription_status
            WHEN 'pending' THEN 1
            WHEN 'in progress' THEN 2
            WHEN 'completed' THEN 3
-           ELSE 4
+           WHEN 'cancelled' THEN 4
+           ELSE 5
          END,
          s.contract_submitted_date DESC`,
       { type: QueryTypes.SELECT }
     );
     res.status(200).json({ submissions });
   } catch (error) {
-    logger.error("Error fetching active handset submissions:", error);
+    logError("Error fetching active handset submissions:", error);
     res.status(500).json({ message: "Failed to fetch active submissions." });
   }
 };
@@ -325,6 +359,13 @@ exports.updateHandsetSubmissionStatus = async (req, res) => {
     }
 
     const currentStatus = submission.subscription_status;
+
+    if (currentStatus === "cancelled") {
+      return res.status(400).json({
+        message: "Cancelled submissions cannot be updated.",
+      });
+    }
+
     const allowedNext = STATUS_TRANSITIONS[currentStatus];
 
     if (!allowedNext || nextStatus !== allowedNext) {
@@ -360,7 +401,66 @@ exports.updateHandsetSubmissionStatus = async (req, res) => {
       submission,
     });
   } catch (error) {
-    logger.error("Error updating handset submission status:", error);
+    logError("Error updating handset submission status:", error);
     res.status(500).json({ message: "Failed to update submission status." });
+  }
+};
+
+exports.cancelHandsetSubmission = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const employeeCode = normalizeEmployeeCode(req.user?.EmployeeCode);
+
+    if (!id) {
+      return res.status(400).json({ message: "Submission id is required." });
+    }
+
+    if (!employeeCode) {
+      return res.status(400).json({ message: "Employee code is required." });
+    }
+
+    const submission = await HandsetContractSubmission.findByPk(id);
+    if (!submission) {
+      return res.status(404).json({ message: "Submission not found." });
+    }
+
+    if (normalizeEmployeeCode(submission.employeeCode) !== employeeCode) {
+      return res.status(403).json({
+        message: "You can only cancel your own handset request.",
+      });
+    }
+
+    if (submission.subscription_status !== "pending") {
+      return res.status(400).json({
+        message: "Only pending handset requests can be cancelled.",
+      });
+    }
+
+    const employee = await findStaffByEmployeeCode(submission.employeeCode);
+
+    submission.subscription_status = "cancelled";
+    submission.cancelledAt = new Date();
+    await submission.save();
+
+    setImmediate(async () => {
+      try {
+        await notifyHandsetContractCancellation({
+          employeeCode: submission.employeeCode,
+          employee,
+          submission,
+        });
+      } catch (notifyError) {
+        logError("Handset request cancelled but notification failed:", notifyError);
+      }
+    });
+
+    res.status(200).json({
+      success: true,
+      message: "Handset request cancelled successfully.",
+      submission,
+    });
+  } catch (error) {
+    logError("Error cancelling handset submission:", error);
+    res.status(500).json({ message: "Failed to cancel handset request." });
   }
 };

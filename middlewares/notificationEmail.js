@@ -1,3 +1,4 @@
+const { logError } = require('../middlewares/errorLogger');
 const path = require("path");
 const nodemailer = require("nodemailer");
 const {
@@ -23,6 +24,7 @@ async function sendMailWithRetry(mailOptions, attempts = 3) {
     try {
       return await transporter.sendMail(mailOptions);
     } catch (error) {
+      logError(error);
       lastError = error;
       if (attempt < attempts) {
         await new Promise((resolve) => setTimeout(resolve, attempt * 2000));

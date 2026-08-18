@@ -1,7 +1,8 @@
 const Handsets = require("../models/Handsets");
 const Staff = require("../models/Staff");
 const sequelize = require("../config/database");
-const logger = require("../middlewares/errorLogger");
+const logger = require('../middlewares/errorLogger');
+const { logError } = logger;
 const Notifications = require("../models/Notifications");
 const { sendAdminEmail } = require("../middlewares/adminEmail");
 
@@ -114,7 +115,7 @@ exports.verifyProbation = async (req, res) => {
         );
       }
     } catch (e) {
-      logger.error("Warehouse notification failed:", e.message || e);
+      logError("Warehouse notification failed:", e.message || e);
     }
 
     res.status(200).json({
@@ -133,7 +134,7 @@ exports.verifyProbation = async (req, res) => {
     });
 
   } catch (error) {
-    logger.error("Error verifying probation:", error);
+    logError("Error verifying probation:", error);
     res.status(500).json({
       success: false,
       message: "Failed to verify probation",
@@ -240,7 +241,7 @@ exports.verifyRenewal = async (req, res) => {
         );
       }
     } catch (e) {
-      logger.error("Warehouse notification failed:", e.message || e);
+      logError("Warehouse notification failed:", e.message || e);
     }
 
     res.status(200).json({
@@ -260,7 +261,7 @@ exports.verifyRenewal = async (req, res) => {
     });
 
   } catch (error) {
-    logger.error("Error verifying renewal:", error);
+    logError("Error verifying renewal:", error);
     res.status(500).json({
       success: false,
       message: "Failed to verify renewal",
@@ -374,7 +375,7 @@ exports.getPendingVerifications = async (req, res) => {
     });
 
   } catch (error) {
-    logger.error("Error retrieving pending verifications:", error);
+    logError("Error retrieving pending verifications:", error);
     res.status(500).json({
       success: false,
       message: "Failed to retrieve pending verifications",
@@ -445,7 +446,7 @@ exports.getRenewalDueDates = async (req, res) => {
     });
 
   } catch (error) {
-    logger.error("Error retrieving renewal due dates:", error);
+    logError("Error retrieving renewal due dates:", error);
     res.status(500).json({
       success: false,
       message: "Failed to retrieve renewal due dates",
@@ -494,6 +495,7 @@ async function simulateERPVerification(handset, employee) {
     };
 
   } catch (error) {
+    logError("ERP verification error", error);
     return {
       verified: false,
       reason: "ERP verification service unavailable",
@@ -549,6 +551,7 @@ exports.bulkVerify = async (req, res) => {
           await exports.verifyRenewal(mockReq, mockRes);
         }
       } catch (error) {
+        logError(`Bulk verification failed for request ${requestId}`, error);
         errors.push({ requestId, error: error.message });
       }
     }
@@ -566,7 +569,7 @@ exports.bulkVerify = async (req, res) => {
     });
 
   } catch (error) {
-    logger.error("Error in bulk verification:", error);
+    logError("Error in bulk verification:", error);
     res.status(500).json({
       success: false,
       message: "Failed to perform bulk verification",

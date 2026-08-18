@@ -37,12 +37,16 @@ const HandsetContractSubmission = sequelize.define(
       defaultValue: DataTypes.NOW,
     },
     subscription_status: {
-      type: DataTypes.ENUM("pending", "in progress", "completed"),
+      type: DataTypes.ENUM("pending", "in progress", "completed", "cancelled"),
       allowNull: false,
       defaultValue: "pending",
     },
     assignedAdminCode: {
       type: DataTypes.STRING(50),
+      allowNull: true,
+    },
+    cancelledAt: {
+      type: DataTypes.DATE,
       allowNull: true,
     },
   },

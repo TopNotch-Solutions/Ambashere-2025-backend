@@ -2,7 +2,8 @@ const Handsets = require("../models/Handsets");
 const CdrLiveEmployeeHandsetDetail = require("../models/crdliveEmployeeHandsetDetail");
 const HandsetContractSubmission = require("../models/HandsetContractSubmission");
 const sequelize = require("../config/database");
-const logger = require("../middlewares/errorLogger");
+const logger = require('../middlewares/errorLogger');
+const { logError } = logger;
 const Staff = require("../models/Staff");
 const Allocation = require("../models/Allocation");
 const { where, Op } = require("sequelize");
@@ -44,6 +45,7 @@ function formatSubmissionStatus(status) {
   if (value === "in progress") return "In Progress";
   if (value === "pending") return "Pending";
   if (value === "completed") return "Completed";
+  if (value === "cancelled") return "Cancelled";
   return status || "Pending";
 }
 
@@ -55,6 +57,7 @@ function mapSubmissionToStaffHandset(submission) {
 
   return {
     id: `hs-${submission.id}`,
+    submissionId: submission.id,
     isSubmission: true,
     EmployeeCode: submission.employeeCode,
     employee_code: submission.employeeCode,
@@ -132,7 +135,7 @@ exports.getHandsets = async (req, res) => {
     console.log("My handset: ",handsets)
     res.status(200).json(handsets);
   } catch (error) {
-    logger.error("Error retrieving device details:", error);
+    logError("Error retrieving device details:", error);
     res.status(500).json({
       message: "Failed to retrieve device details:",
       error: process.env.NODE_ENV === "production" ? undefined : error.message,
@@ -166,7 +169,7 @@ exports.getHandsetsUser = async (req, res) => {
     ];
     res.status(200).json(handsets);
   } catch (error) {
-    logger.error("Error retrieving device details:", error);
+    logError("Error retrieving device details:", error);
     res.status(500).json({
       message: "Failed to retrieve device details:",
       error: process.env.NODE_ENV === "production" ? undefined : error.message,
@@ -244,7 +247,7 @@ exports.updateById = async (req, res) => {
 }
     return res.status(200).json({ message: "Handset updated successfully." });
   } catch (error) {
-    logger.error("Error updating handset:", error);
+    logError("Error updating handset:", error);
     return res.status(500).json({
       message: "Failed to update handset."+ error,
       error: process.env.NODE_ENV === "production" ? undefined : error.message,
@@ -265,7 +268,7 @@ exports.getAllocationsByEmployeeCode = async (req, res) => {
    }
   return res.status(200).json({myAllocation})
   }catch (error) {
-    logger.error("Error retrieving device details by staff:", error);
+    logError("Error retrieving device details by staff:", error);
     res.status(500).json({
       message: "Failed to retrieve device details by staff:",
       error: process.env.NODE_ENV === "production" ? undefined : error.message,
@@ -302,7 +305,7 @@ exports.getHandsetsByStaff = async (req, res) => {
     return res.json({ handsets });
 
   } catch (error) {
-    logger.error("Error retrieving device details by staff:", error);
+    logError("Error retrieving device details by staff:", error);
     res.status(500).json({
       message: "Failed to retrieve device details by staff",
       error: process.env.NODE_ENV === "production" ? undefined : error.message,
@@ -451,7 +454,7 @@ exports.postHandset = async (req, res) => {
           const emailResult = await sendFinanceTeamEmail(staff.Email, emailSubject, handsetData);
           console.log('Finance team email sent:', emailResult);
         } catch (emailError) {
-          logger.error("Error sending email to finance team:", emailError);
+          logError("Error sending email to finance team:", emailError);
           // Don't fail the request if email fails
         }
       }
@@ -485,7 +488,7 @@ exports.postHandset = async (req, res) => {
       requiresProbationVerification: requestType === 'New'
     });
   } catch (error) {
-    logger.error("Error creating handset record:", error);
+    logError("Error creating handset record:", error);
     res.status(500).json({
       message: "Failed to create handset record:",
       error: process.env.NODE_ENV === "production" ? undefined : error.message,
@@ -501,7 +504,7 @@ exports.getHandsetsOfStaff = async (req, res) => {
     const appliedHandsets = submissions.map(mapSubmissionToStaffHandset);
     res.status(200).json([...appliedHandsets, ...staffHandsets]);
   } catch (error) {
-    logger.error("Error retrieving handset details by staff:", error);
+    logError("Error retrieving handset details by staff:", error);
     res.status(500).json({
       message: "Failed to retrieve handset details by staff:",
       error: process.env.NODE_ENV === "production" ? undefined : error.message,
@@ -532,7 +535,7 @@ exports.deleteHandset = async (req, res) => {
     return res.status(200).json({ message: "Handset deleted successfully." });
 
   } catch (error) {
-    console.error("Error deleting contract:", error); // Changed log message for clarity
+    logError("Error deleting contract:", error); // Changed log message for clarity
     res.status(500).json({ message: "Server error during handset deletion. Please try again." }); // More descriptive error
   }
 };
@@ -659,7 +662,7 @@ exports.updateHandsetRequestStatus = async (req, res) => {
     });
 
   } catch (error) {
-    logger.error("Error updating handset request status:", error);
+    logError("Error updating handset request status:", error);
     res.status(500).json({
       message: "Failed to update handset request status:",
       error: process.env.NODE_ENV === "production" ? undefined : error.message,
@@ -684,7 +687,7 @@ exports.getHandsetRequestsForReview = async (req, res) => {
 
     res.status(200).json(requests);
   } catch (error) {
-    logger.error("Error retrieving handset requests for review:", error);
+    logError("Error retrieving handset requests for review:", error);
     res.status(500).json({
       message: "Failed to retrieve handset requests for review:",
       error: process.env.NODE_ENV === "production" ? undefined : error.message,
@@ -839,7 +842,7 @@ exports.getPendingHandsetApprovals = async (req, res) => {
       }
     });
   } catch (error) {
-    logger.error("Error retrieving pending handset approvals:", error);
+    logError("Error retrieving pending handset approvals:", error);
     res.status(500).json({
       success: false,
       message: "Failed to retrieve pending handset approvals",
@@ -940,7 +943,7 @@ exports.verifyProbation = async (req, res) => {
           const emailResult = await sendFinanceTeamEmail(employee.Email, emailSubject, handsetData);
           console.log('Finance team email sent after probation verification:', emailResult);
         } catch (emailError) {
-          logger.error("Error sending email to finance team after probation verification:", emailError);
+          logError("Error sending email to finance team after probation verification:", emailError);
           // Don't fail the request if email fails
         }
       }
@@ -1000,7 +1003,7 @@ exports.verifyProbation = async (req, res) => {
     }
 
   } catch (error) {
-    logger.error("Error verifying probation:", error);
+    logError("Error verifying probation:", error);
     res.status(500).json({
       success: false,
       message: "Failed to verify probation",
@@ -1076,7 +1079,7 @@ exports.verifyRenewal = async (req, res) => {
         const emailResult = await sendAdminEmail(employee.Email, emailSubject, emailData);
         console.log('Renewal approval email sent:', emailResult);
       } catch (emailError) {
-        logger.error("Error sending renewal approval email:", emailError);
+        logError("Error sending renewal approval email:", emailError);
         // Don't fail the request if email fails
       }
 
@@ -1137,7 +1140,7 @@ exports.verifyRenewal = async (req, res) => {
     }
 
   } catch (error) {
-    logger.error("Error verifying renewal:", error);
+    logError("Error verifying renewal:", error);
     res.status(500).json({
       success: false,
       message: "Failed to verify renewal",
@@ -1186,6 +1189,7 @@ async function simulateERPVerification(handset, employee) {
     };
 
   } catch (error) {
+    logError(error);
     return {
       verified: false,
       reason: "ERP verification service unavailable",
@@ -1242,7 +1246,7 @@ exports.verifyRenewalDueDates = async (req, res) => {
       renewals: renewalVerifications
     });
   } catch (error) {
-    logger.error("Error verifying renewal due dates:", error);
+    logError("Error verifying renewal due dates:", error);
     res.status(500).json({
       message: "Failed to verify renewal due dates",
       error: process.env.NODE_ENV === "production" ? undefined : error.message,
@@ -1335,7 +1339,7 @@ exports.shareIMEIWithAdmin = async (req, res) => {
           console.log(`IMEI sharing email sent to ${admin.FullName}:`, emailResult);
         }
       } catch (emailError) {
-        logger.error("Error sending IMEI sharing email:", emailError);
+        logError("Error sending IMEI sharing email:", emailError);
         // Don't fail the request if email fails
       }
     }
@@ -1385,7 +1389,7 @@ exports.shareIMEIWithAdmin = async (req, res) => {
           const paymentEmailResult = await sendAdminEmail(employee.Email, paymentEmailSubject, paymentEmailData);
           console.log(`Payment reminder email sent to ${employee.FullName}:`, paymentEmailResult);
         } catch (paymentEmailError) {
-          logger.error("Error sending payment reminder email:", paymentEmailError);
+          logError("Error sending payment reminder email:", paymentEmailError);
           // Don't fail the request if email fails
         }
       } else {
@@ -1427,7 +1431,7 @@ exports.shareIMEIWithAdmin = async (req, res) => {
           const confirmationEmailResult = await sendAdminEmail(employee.Email, confirmationEmailSubject, confirmationEmailData);
           console.log(`Payment confirmation email sent to ${employee.FullName}:`, confirmationEmailResult);
         } catch (confirmationEmailError) {
-          logger.error("Error sending payment confirmation email:", confirmationEmailError);
+          logError("Error sending payment confirmation email:", confirmationEmailError);
           // Don't fail the request if email fails
         }
       }
@@ -1464,7 +1468,7 @@ exports.shareIMEIWithAdmin = async (req, res) => {
     });
 
   } catch (error) {
-    logger.error("Error sharing IMEI with admin:", error);
+    logError("Error sharing IMEI with admin:", error);
     res.status(500).json({
       success: false,
       message: "Failed to share IMEI with admin",
@@ -1488,7 +1492,7 @@ exports.testRetailReservations = async (req, res) => {
       }
     });
   } catch (error) {
-    console.error("Error in test endpoint:", error);
+    logError("Error in test endpoint:", error);
     res.status(500).json({
       success: false,
       message: "Test endpoint failed",
@@ -1589,8 +1593,7 @@ exports.getRetailDeviceAllocations = async (req, res) => {
     });
 
   } catch (error) {
-    console.error("Error retrieving retail reservations:", error);
-    logger.error("Error retrieving retail device allocations:", error);
+    logError("Error retrieving retail device allocations:", error);
     res.status(500).json({
       success: false,
       message: "Failed to retrieve retail device allocations",
@@ -1715,7 +1718,7 @@ exports.reserveHandset = async (req, res) => {
     });
 
   } catch (error) {
-    logger.error("Error reserving handset:", error);
+    logError("Error reserving handset:", error);
     res.status(500).json({
       success: false,
       message: "Failed to reserve handset",
@@ -1793,7 +1796,7 @@ exports.issueIMEI = async (req, res) => {
     });
 
   } catch (error) {
-    logger.error("Error issuing IMEI:", error);
+    logError("Error issuing IMEI:", error);
     res.status(500).json({
       success: false,
       message: "Failed to issue IMEI",
@@ -1894,7 +1897,7 @@ exports.confirmPayment = async (req, res) => {
         const emailResult = await sendAdminEmail(employee.Email, emailSubject, emailData);
         console.log(`Payment confirmation email sent to ${employee.FullName}:`, emailResult);
       } catch (emailError) {
-        logger.error("Error sending payment confirmation email:", emailError);
+        logError("Error sending payment confirmation email:", emailError);
         // Don't fail the request if email fails
       }
     }
@@ -1918,7 +1921,7 @@ exports.confirmPayment = async (req, res) => {
           console.log(`Payment confirmation email sent to admin ${admin.FullName}:`, adminEmailResult);
         }
       } catch (adminEmailError) {
-        logger.error("Error sending payment confirmation email to admin users:", adminEmailError);
+        logError("Error sending payment confirmation email to admin users:", adminEmailError);
         // Don't fail the request if email fails
       }
     }
@@ -1940,7 +1943,7 @@ exports.confirmPayment = async (req, res) => {
     });
 
   } catch (error) {
-    logger.error("Error confirming payment:", error);
+    logError("Error confirming payment:", error);
     res.status(500).json({
       success: false,
       message: "Failed to confirm payment",
@@ -2002,8 +2005,7 @@ exports.getPendingPayments = async (req, res) => {
     });
 
   } catch (error) {
-    console.error("Error retrieving pending payments:", error);
-    logger.error("Error retrieving pending payments:", error);
+    logError("Error retrieving pending payments:", error);
     res.status(500).json({
       success: false,
       message: "Failed to retrieve pending payments",
@@ -2090,7 +2092,7 @@ exports.issueFixedAssetCode = async (req, res) => {
         const emailResult = await sendAdminEmail(employee.Email, emailSubject, emailData);
         console.log(`Asset code assignment email sent to ${employee.FullName}:`, emailResult);
       } catch (emailError) {
-        logger.error("Error sending asset code assignment email:", emailError);
+        logError("Error sending asset code assignment email:", emailError);
         // Don't fail the request if email fails
       }
     }
@@ -2136,7 +2138,7 @@ exports.issueFixedAssetCode = async (req, res) => {
           console.log(`Asset code assignment email sent to admin ${admin.FullName}:`, adminEmailResult);
         }
       } catch (adminEmailError) {
-        logger.error("Error sending asset code assignment email to admin users:", adminEmailError);
+        logError("Error sending asset code assignment email to admin users:", adminEmailError);
         // Don't fail the request if email fails
       }
     }
@@ -2159,7 +2161,7 @@ exports.issueFixedAssetCode = async (req, res) => {
     });
 
   } catch (error) {
-    logger.error("Error issuing Fixed Asset Code:", error);
+    logError("Error issuing Fixed Asset Code:", error);
     res.status(500).json({
       success: false,
       message: "Failed to issue Fixed Asset Code",
@@ -2216,8 +2218,7 @@ exports.getHandsetsForAssetCode = async (req, res) => {
     });
 
   } catch (error) {
-    console.error("Error retrieving handsets for asset code assignment:", error);
-    logger.error("Error retrieving handsets for asset code assignment:", error);
+    logError("Error retrieving handsets for asset code assignment:", error);
     res.status(500).json({
       success: false,
       message: "Failed to retrieve handsets for asset code assignment",
@@ -2293,8 +2294,7 @@ exports.getMyReservedDevices = async (req, res) => {
     });
 
   } catch (error) {
-    console.error("Error retrieving my reserved devices:", error);
-    logger.error("Error retrieving my reserved devices:", error);
+    logError("Error retrieving my reserved devices:", error);
     res.status(500).json({
       success: false,
       message: "Failed to retrieve reserved devices",
@@ -2387,7 +2387,7 @@ exports.assignMRNumber = async (req, res) => {
         const emailResult = await sendAdminEmail(employee.Email, emailSubject, emailData);
         console.log(`Device ready for collection email sent to ${employee.FullName}:`, emailResult);
       } catch (emailError) {
-        logger.error("Error sending device ready for collection email:", emailError);
+        logError("Error sending device ready for collection email:", emailError);
         // Don't fail the request if email fails
       }
     }
@@ -2435,7 +2435,7 @@ exports.assignMRNumber = async (req, res) => {
           console.log(`MR Created email sent to admin ${admin.FullName}:`, adminEmailResult);
         }
       } catch (adminEmailError) {
-        logger.error("Error sending MR Created email to admin users:", adminEmailError);
+        logError("Error sending MR Created email to admin users:", adminEmailError);
         // Don't fail the request if email fails
       }
     }
@@ -2460,7 +2460,7 @@ exports.assignMRNumber = async (req, res) => {
     });
 
   } catch (error) {
-    logger.error("Error assigning MR Number:", error);
+    logError("Error assigning MR Number:", error);
     res.status(500).json({
       success: false,
       message: "Error assigning MR Number",
@@ -2534,8 +2534,7 @@ exports.getHandsetsForControlCard = async (req, res) => {
     });
 
   } catch (error) {
-    console.error("Error retrieving handsets for control card:", error);
-    logger.error("Error retrieving handsets for control card:", error);
+    logError("Error retrieving handsets for control card:", error);
     res.status(500).json({
       success: false,
       message: "Failed to retrieve handsets for control card",
@@ -2621,7 +2620,7 @@ exports.getControlCardData = async (req, res) => {
     });
 
   } catch (error) {
-    logger.error("Error getting control card data:", error);
+    logError("Error getting control card data:", error);
     res.status(500).json({
       success: false,
       message: "Error getting control card data",
@@ -2719,7 +2718,7 @@ exports.printControlCard = async (req, res) => {
     });
 
   } catch (error) {
-    logger.error("Error printing control card:", error);
+    logError("Error printing control card:", error);
     res.status(500).json({
       success: false,
       message: "Error printing control card",
@@ -2808,7 +2807,7 @@ exports.uploadCollectionProof = async (req, res) => {
     });
 
   } catch (error) {
-    logger.error("Error uploading collection proof:", error);
+    logError("Error uploading collection proof:", error);
     res.status(500).json({
       success: false,
       message: "Error uploading collection proof",

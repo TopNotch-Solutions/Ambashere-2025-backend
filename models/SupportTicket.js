@@ -31,7 +31,7 @@ const SupportTicket = sequelize.define(
       allowNull: false,
     },
     status: {
-      type: DataTypes.ENUM("pending", "in progress", "completed"),
+      type: DataTypes.ENUM("pending", "in progress", "completed", "cancelled"),
       allowNull: false,
       defaultValue: "pending",
     },
@@ -44,6 +44,10 @@ const SupportTicket = sequelize.define(
       allowNull: true,
     },
     completedAt: {
+      type: DataTypes.DATE,
+      allowNull: true,
+    },
+    cancelledAt: {
       type: DataTypes.DATE,
       allowNull: true,
     },

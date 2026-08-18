@@ -1,6 +1,7 @@
 const { where } = require("sequelize");
 const { sendAdminEmail } = require("../middlewares/adminEmail");
 const { sendEmail } = require("../middlewares/email");
+const { logError } = require("../middlewares/errorLogger");
 const Notifications = require("../models/Notifications");
 const Staff = require("../models/Staff");
 
@@ -32,6 +33,7 @@ exports.sendEmailController = async (req, res) => {
       info: emailInfo,
     });
   } catch (error) {
+    logError("Error sending email", error);
     res.status(500).json({ success: false, error: error.message });
   }
 };
@@ -56,6 +58,7 @@ exports.sendAdminEmailController = async (req, res) => {
       info: emailInfo,
     });
   } catch (error) {
+    logError("Error sending admin email", error);
     res.status(500).json({ success: false, error: error.message });
   }
 };

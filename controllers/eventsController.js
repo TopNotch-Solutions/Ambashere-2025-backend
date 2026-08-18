@@ -1,6 +1,7 @@
 const Events = require("../models/Events");
 const sequelize = require("../config/database");
-const logger = require("../middlewares/errorLogger");
+const logger = require('../middlewares/errorLogger');
+const { logError } = logger;
 
 const normalizeEventDate = (eventDate) => {
   if (!eventDate) return null;
@@ -24,7 +25,7 @@ exports.getEvents = async (req, res) => {
         });
         res.json(events);
     } catch (error) {
-        logger.error(error);
+        logError(error);
         res.status(500).json({
             message: "Failed to retrieve events details:",
             error: process.env.NODE_ENV === "production" ? undefined : error.message,
@@ -69,7 +70,7 @@ exports.createEvent = async (req, res) => {
         });
 
     } catch (error) {
-        logger.error(error);
+        logError(error);
         res.status(500).json({
             message: "Failed to create event",
             error: process.env.NODE_ENV === "production" ? undefined : error.message,
@@ -86,7 +87,7 @@ exports.deleteEvent = async (req, res) => {
         await event.destroy();
         res.json({ message: "Event deleted successfully" });
     } catch (error) {
-        logger.error(error);
+        logError(error);
         res.status(500).json({
             message: "Failed to delete event:", 
             error: process.env.NODE_ENV === "production" ? undefined : error.message,
@@ -122,7 +123,7 @@ exports.updateEvent = async (req, res) => {
         });
         res.json(event);
     } catch (error) {
-        logger.error(error);
+        logError(error);
         res.status(500).json({
             message: "Failed to update event:", 
             error: process.env.NODE_ENV === "production" ? undefined : error.message,

@@ -2,7 +2,7 @@ const multer = require("multer");
 const XLSX = require("xlsx");
 const pdfParse = require("pdf-parse");
 const db = require("../config/database");
-const logger = require("../middlewares/errorLogger");
+const { logError } = require("../middlewares/errorLogger");
 
 function normalizeEmployeeCode(employeeCode) {
   return String(employeeCode || "")
@@ -42,7 +42,7 @@ const upload = async (req, res) => {
       return res.status(400).json({ message: "Unsupported file format" });
     }
   } catch (error) {
-    logger.error("Error processing file:", error);
+    logError("Error processing uploaded file", error);
     res.status(500).json({
       message: "Failed to process file",
       error: process.env.NODE_ENV === "production" ? undefined : error.message,
@@ -122,7 +122,7 @@ const insertDataIntoDatabase = async (data, columnNames, res) => {
 
     const tableName = getTableName(columnNames, columnMappings);
     if (!tableName) {
-      console.error("No table found for row:", row);
+      logError("File upload: no table found for row", { message: JSON.stringify(row) });
       continue;
     }
 
@@ -135,7 +135,7 @@ const insertDataIntoDatabase = async (data, columnNames, res) => {
     }, {});
 
     if (Object.keys(mappedColumns).length === 0) {
-      console.error("No valid data found for row:", row);
+      logError("File upload: no valid data found for row", { message: JSON.stringify(row) });
       continue;
     }
 
@@ -152,7 +152,7 @@ const insertDataIntoDatabase = async (data, columnNames, res) => {
     try {
       await db.query(query, values);
     } catch (dbError) {
-      console.error("Database insertion error:", dbError);
+      logError("File upload: database insertion error", dbError);
     }
   }
 

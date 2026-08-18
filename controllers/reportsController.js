@@ -1,6 +1,7 @@
 const sequelize = require("../config/database");
 const { Op, fn, col, where, QueryTypes } = require("sequelize");
-const logger = require("../middlewares/errorLogger");
+const logger = require('../middlewares/errorLogger');
+const { logError } = logger;
 const CdrLiveEmployeeContractDetails = require("../models/crdliveEmployeeContractDetail");
 const CdrLiveEmployeeHandsetDetail = require("../models/crdliveEmployeeHandsetDetail");
 
@@ -74,7 +75,7 @@ exports.getEmployeeDemographics = async (req, res) => {
       employmentCategory: employmentCategory
     });
   } catch (error) {
-    logger.error("Error fetching employee demographics:", error);
+    logError("Error fetching employee demographics:", error);
     res.status(500).json({ message: "Failed to fetch demographics data" });
   }
 };
@@ -121,7 +122,7 @@ exports.getEmployeeStatusReport = async (req, res) => {
       temporaryVsPermanent
     });
   } catch (error) {
-    logger.error("Error fetching employee status report:", error);
+    logError("Error fetching employee status report:", error);
     res.status(500).json({ message: "Failed to fetch employee status data" });
   }
 };
@@ -188,7 +189,7 @@ exports.getCostAnalysisReport = async (req, res) => {
       upfrontPayments: upfrontPayments[0]
     });
   } catch (error) {
-    logger.error("Error fetching cost analysis report:", error);
+    logError("Error fetching cost analysis report:", error);
     res.status(500).json({ message: "Failed to fetch cost analysis data" });
   }
 };
@@ -233,7 +234,7 @@ exports.getBudgetReport = async (req, res) => {
       monthlyTrends
     });
   } catch (error) {
-    logger.error("Error fetching budget report:", error);
+    logError("Error fetching budget report:", error);
     res.status(500).json({ message: "Failed to fetch budget data" });
   }
 };
@@ -290,7 +291,7 @@ exports.getDeviceAllocationReport = async (req, res) => {
       departmentDeviceUsage
     });
   } catch (error) {
-    logger.error("Error fetching device allocation report:", error);
+    logError("Error fetching device allocation report:", error);
     res.status(500).json({ message: "Failed to fetch device allocation data" });
   }
 };
@@ -347,7 +348,7 @@ exports.getPackageUtilizationReport = async (req, res) => {
       monthlyPackageUsage
     });
   } catch (error) {
-    logger.error("Error fetching package utilization report:", error);
+    logError("Error fetching package utilization report:", error);
     res.status(500).json({ message: "Failed to fetch package utilization data" });
   }
 };
@@ -402,7 +403,7 @@ exports.getBenefitUtilizationReport = async (req, res) => {
       peakPeriods: peakUsagePeriods
     });
   } catch (error) {
-    logger.error("Error fetching benefit utilization report:", error);
+    logError("Error fetching benefit utilization report:", error);
     res.status(500).json({ message: "Failed to fetch benefit utilization data" });
   }
 };
@@ -461,7 +462,7 @@ exports.getTrendAnalysisReport = async (req, res) => {
       seasonalPatterns
     });
   } catch (error) {
-    logger.error("Error fetching trend analysis report:", error);
+    logError("Error fetching trend analysis report:", error);
     res.status(500).json({ message: "Failed to fetch trend analysis data" });
   }
 };
@@ -524,7 +525,7 @@ exports.getComplianceReport = async (req, res) => {
       subscriptionStatus
     });
   } catch (error) {
-    logger.error("Error fetching compliance report:", error);
+    logError("Error fetching compliance report:", error);
     res.status(500).json({ message: "Failed to fetch compliance data" });
   }
 };
@@ -578,7 +579,7 @@ exports.getMonthlyReport = async (req, res) => {
       departmentBreakdown
     });
   } catch (error) {
-    logger.error("Error fetching monthly report:", error);
+    logError("Error fetching monthly report:", error);
     res.status(500).json({ message: "Failed to fetch monthly report data" });
   }
 };
@@ -636,7 +637,7 @@ exports.getQuarterlyReport = async (req, res) => {
       monthlyBreakdown
     });
   } catch (error) {
-    logger.error("Error fetching quarterly report:", error);
+    logError("Error fetching quarterly report:", error);
     res.status(500).json({ message: "Failed to fetch quarterly report data" });
   }
 };
@@ -686,7 +687,7 @@ exports.getROIReport = async (req, res) => {
       utilizationROI: utilizationROI[0]
     });
   } catch (error) {
-    logger.error("Error fetching ROI report:", error);
+    logError("Error fetching ROI report:", error);
     res.status(500).json({ message: "Failed to fetch ROI data" });
   }
 };
@@ -829,7 +830,7 @@ exports.getLimitViolationsReport = async (req, res) => {
       doneViolations,
     });
   } catch (error) {
-    logger.error("Error fetching limit violations report:", error);
+    logError("Error fetching limit violations report:", error);
     res.status(500).json({ message: "Failed to fetch limit violations data" });
   }
 };

@@ -1,3 +1,4 @@
+const { logError } = require('../middlewares/errorLogger');
 const nodemailer = require("nodemailer");
 const Staff = require("../models/Staff");
 
@@ -32,6 +33,7 @@ const sendAdminEmail = async (email, subject, message) => {
     console.log(info);
     return info;
   } catch (error) {
+    logError(error);
     throw new Error(`Email could not be sent: ${error.message}`);
   }
 };

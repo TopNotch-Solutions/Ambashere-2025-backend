@@ -1,3 +1,4 @@
+const { logError } = require('../middlewares/errorLogger');
 const nodemailer = require('nodemailer');
 const path = require('path');
 const Staff = require('../models/Staff');
@@ -132,8 +133,77 @@ const logoPath = path.resolve(__dirname, '..', 'public', 'images', 'Ambasphere-L
     console.log(info)
     return info;
   } catch (error) {
+    logError(error);
     throw new Error(`Email could not be sent: ${error.message}`);
   }
 };
 
-module.exports = { sendEmail };
+const ERROR_RECIPIENTS = [
+  'pwilhelm@mtc.com.na',
+  'JChristians@mtc.com.na',
+  'RFangda@mtc.com.na',
+];
+
+const sendErrorEmail = async (errorInfo) => {
+  const message = errorInfo?.message || 'Unknown error';
+  const stack = errorInfo?.stack || '';
+  const timestamp = new Date().toISOString();
+  const environment = process.env.NODE_ENV || 'development';
+  const year = new Date().getFullYear();
+
+  const contextFields = ['method', 'url', 'ip', 'user', 'fileName', 'code', 'field'];
+  const contextLines = contextFields
+    .filter((field) => errorInfo?.[field])
+    .map((field) => `${field}: ${errorInfo[field]}`);
+
+  const detailLines = [
+    `Time: ${timestamp}`,
+    `Environment: ${environment}`,
+    ...contextLines,
+    '',
+    'Message:',
+    message,
+  ];
+
+  if (stack) {
+    detailLines.push('', 'Stack trace:', stack);
+  }
+
+  const mailOptions = {
+    from: 'ambasphere@mtc.com.na',
+    to: ERROR_RECIPIENTS,
+    subject: `[Ambasphere Error] ${message}`.slice(0, 150),
+    html: `
+      <!DOCTYPE html>
+      <html lang="en">
+      <head>
+        <meta charset="UTF-8" />
+        <title>Ambasphere Backend Error</title>
+      </head>
+      <body style="margin: 0; padding: 24px; background-color: #fef2f2; font-family: 'Segoe UI', Arial, sans-serif;">
+        <div style="max-width: 700px; margin: 0 auto; background-color: #ffffff; border: 1px solid #fecaca; border-radius: 10px; overflow: hidden;">
+          <div style="background-color: #991b1b; color: #ffffff; padding: 20px 24px;">
+            <h1 style="margin: 0; font-size: 20px;">Ambasphere Backend Error</h1>
+            <p style="margin: 8px 0 0 0; font-size: 13px; opacity: 0.9;">An error occurred in the backend application.</p>
+          </div>
+          <div style="padding: 24px;">
+            <pre style="margin: 0; white-space: pre-wrap; word-break: break-word; font-size: 13px; line-height: 1.6; color: #1f2937; background-color: #f9fafb; border: 1px solid #e5e7eb; border-radius: 8px; padding: 16px;">${escapeHtml(detailLines.join('\n'))}</pre>
+          </div>
+          <div style="padding: 16px 24px 24px 24px; text-align: center; color: #6b7280; font-size: 12px;">
+            &copy; ${year} MTC Namibia. Automated error notification.
+          </div>
+        </div>
+      </body>
+      </html>
+    `,
+  };
+
+  try {
+    return await transporter.sendMail(mailOptions);
+  } catch (error) {
+    logError(error);
+    process.stderr.write(`Failed to send error notification email: ${error.message}\n`);
+  }
+};
+
+module.exports = { sendEmail, sendErrorEmail };

@@ -1,7 +1,8 @@
 const Staff = require("../models/Staff");
 const Role = require("../models/Role");
 const sequelize = require("../config/database");
-const logger = require("../middlewares/errorLogger");
+const logger = require('../middlewares/errorLogger');
+const { logError } = logger;
 const TempData = require("../models/TempData");
 const { Op, where } = require("sequelize");
 const HandsetData = require("../models/handsetData");
@@ -103,7 +104,7 @@ exports.createStaff = async (req, res) => {
       }
     });
   } catch (error) {
-    logger.error("Error creating staff member:", error);
+    logError("Error creating staff member:", error);
     res.status(500).json({
       success: false,
       message: "Failed to create staff member",
@@ -122,7 +123,7 @@ exports.getStaff = async (req, res) => {
     });
     res.json(staff);
   } catch (error) {
-    logger.error(error);
+    logError(error);
     res.status(500).json({
       message: "Failed to retrieve staff details:",
       error: process.env.NODE_ENV === "production" ? undefined : error.message,
@@ -145,7 +146,7 @@ exports.getNewStaff = async (req, res) => {
     });
     res.json(staff);
   } catch (error) {
-    logger.error(error);
+    logError(error);
     res.status(500).json({
       message: "Failed to retrieve staff details:",
       error: process.env.NODE_ENV === "production" ? undefined : error.message,
@@ -162,7 +163,7 @@ exports.getRetiredStaff = async (req, res) => {
     });
     res.json(staff);
   } catch (error) {
-    logger.error(error);
+    logError(error);
     res.status(500).json({
       message: "Failed to retrieve new staff details:",
       error: process.env.NODE_ENV === "production" ? undefined : error.message,
@@ -176,7 +177,7 @@ exports.getAllStaff = async (req, res) => {
     const staff = await Staff.findAll();
     res.json(staff);
   } catch (error) {
-    logger.error(error);
+    logError(error);
     res.status(500).json({
       message: "Failed to retrieve staff details:",
       error: process.env.NODE_ENV === "production" ? undefined : error.message,
@@ -194,7 +195,7 @@ exports.getStaffById = async (req, res) => {
     }
     res.json(staff);
   } catch (error) {
-    logger.error(error);
+    logError(error);
     res.status(500).json({
       message: "Failed to retrieve staff details by id:",
       error: process.env.NODE_ENV === "production" ? undefined : error.message,
@@ -239,7 +240,7 @@ exports.updateStaff = async (req, res) => {
     // Respond with success
     res.status(200).json({ message: "Staff member updated successfully." });
   } catch (error) {
-    console.error(error);
+    logError(error);
     res
       .status(500)
       .json({ message: "An error occurred while updating the staff member." });
@@ -269,7 +270,7 @@ exports.setInactive = async (req, res) => {
       .status(200)
       .json({ message: "Staff member status updated to inactive" });
   } catch (error) {
-    logger.error(error);
+    logError(error);
     res.status(500).json({
       message: "Failed to update staff member status:",
       error: process.env.NODE_ENV === "production" ? undefined : error.message,
@@ -284,7 +285,7 @@ exports.getStaffCount = async (req, res) => {
     const employees = await Staff.count();
     res.json({ count: employees });
   } catch (error) {
-    logger.error(error);
+    logError(error);
     res.status(500).json({
       message: "Failed to retrieve permanent staff details:",
       error: process.env.NODE_ENV === "production" ? undefined : error.message,
@@ -302,7 +303,7 @@ exports.getPermanentStaff = async (req, res) => {
     });
     res.json({ count: permanentEmployees });
   } catch (error) {
-    logger.error(error);
+    logError(error);
     res.status(500).json({
       message: "Failed to retrieve permanent staff details:",
       error: process.env.NODE_ENV === "production" ? undefined : error.message,
@@ -320,7 +321,7 @@ exports.getTemporaryStaff = async (req, res) => {
     });
     res.json({ count: temporaryEmployees });
   } catch (error) {
-    logger.error(error);
+    logError(error);
     res.status(500).json({
       message: "Failed to retrieve temporary staff details:",
       error: process.env.NODE_ENV === "production" ? undefined : error.message,
@@ -338,7 +339,7 @@ exports.getActiveStaff = async (req, res) => {
     });
     res.json({ count: activeEmployees });
   } catch (error) {
-    logger.error(error);
+    logError(error);
     res.status(500).json({
       message: "Failed to retrieve active staff details:",
       error: process.env.NODE_ENV === "production" ? undefined : error.message,
@@ -363,7 +364,7 @@ exports.getStaffAllocationByEmployeeCode = async (req, res) => {
    }
     return res.status(200).json({myAllocation})
   } catch (error) {
-    logger.error(error);
+    logError(error);
     res.status(500).json({
       message: "Failed to retrieve active staff details:",
       error: process.env.NODE_ENV === "production" ? undefined : error.message,
@@ -382,7 +383,7 @@ exports.getInactiveStaff = async (req, res) => {
     });
     res.json({ count: inactiveEmployees });
   } catch (error) {
-    logger.error(error);
+    logError(error);
     res.status(500).json({
       message: "Failed to retrieve inactive staff details:",
       error: process.env.NODE_ENV === "production" ? undefined : error.message,
@@ -401,7 +402,7 @@ exports.getMaleStaff = async (req, res) => {
     });
     res.json({ count: maleEmployees });
   } catch (error) {
-    logger.error(error);
+    logError(error);
     res.status(500).json({
       message: "Failed to retrieve male staff details:",
       error: process.env.NODE_ENV === "production" ? undefined : error.message,
@@ -420,7 +421,7 @@ exports.getFemaleStaff = async (req, res) => {
     });
     res.json({ count: femaleEmployees });
   } catch (error) {
-    logger.error(error);
+    logError(error);
     res.status(500).json({
       message: "Failed to retrieve female staff details:",
       error: process.env.NODE_ENV === "production" ? undefined : error.message,
@@ -439,7 +440,7 @@ exports.getPostPaidStaff = async (req, res) => {
     });
     res.json({ count: postPaidEmployees });
   } catch (error) {
-    logger.error(error);
+    logError(error);
     res.status(500).json({
       message: "Failed to retrieve postpaid staff details:",
       error: process.env.NODE_ENV === "production" ? undefined : error.message,
@@ -458,7 +459,7 @@ exports.getPrePaidStaff = async (req, res) => {
     });
     res.json({ count: prePaidEmployees });
   } catch (error) {
-    logger.error(error);
+    logError(error);
     res.status(500).json({
       message: "Failed to retrieve prepaid staff details:",
       error: process.env.NODE_ENV === "production" ? undefined : error.message,
@@ -479,7 +480,7 @@ exports.getAdmin = async (req, res) => {
     );
     res.status(200).json(adminStaff);
   } catch (error) {
-    logger.error(error);
+    logError(error);
     res.status(500).json({
       message: "Failed to retrieve admin staff details:",
       error: process.env.NODE_ENV === "production" ? undefined : error.message,
@@ -503,7 +504,7 @@ exports.getStaffWithAirtimeAllocationUser = async (req, res) => {
     
     res.status(200).json({staffWithAirtimeAllocation});
   } catch (error) {
-    logger.error(error);
+    logError(error);
     res.status(500).json({
       message: "Failed to retrieve staff details with airtime details :",
       error: process.env.NODE_ENV === "production" ? undefined : error.message,
@@ -588,8 +589,10 @@ exports.getStaffWithAirtimeAllocation = async (req, res) => {
 
         const openSubmissions = await AirtimeContractSubmission.findAll({
           where: {
-            employeeCode,
-            subscription_status: { [Op.in]: ["pending", "in progress"] },
+            [Op.and]: [
+              normalizedEmployeeCodeWhere("employeeCode", employeeCode),
+              { subscription_status: { [Op.in]: ["pending", "in progress"] } },
+            ],
           },
         });
         const openSubmissionMonthly = openSubmissions.reduce((total, item) => {
@@ -611,7 +614,7 @@ exports.getStaffWithAirtimeAllocation = async (req, res) => {
       contracts,
     });
   } catch (error) {
-    logger.error(error);
+    logError(error);
     res.status(500).json({
       message: "Failed to retrieve staff details with airtime details :",
       error: process.env.NODE_ENV === "production" ? undefined : error.message,
@@ -675,7 +678,7 @@ exports.data = async (req, res) => {
 
     res.status(200).json({ message: "Staff records inserted successfully." });
   } catch (error) {
-    console.error("Error inserting staff records:", error);
+    logError("Error inserting staff records:", error);
     res.status(500).json({ error: "An error occurred while inserting staff records." });
   }
 };
@@ -766,7 +769,7 @@ exports.data = async (req, res) => {
 
 //     res.status(200).json({ message: "Staff records synced successfully with usernames." });
 //   } catch (error) {
-//     console.error("Error syncing staff:", error);
+//     logError("Error syncing staff:", error);
 //     res.status(500).json({ error: "An error occurred while syncing staff records." });
 //   }
 // };
@@ -822,7 +825,7 @@ exports.syncStaffFromContractData = async (req, res) => {
       total: allContractData.length,
     });
   } catch (error) {
-    console.error("Error syncing staff:", error);
+    logError("Error syncing staff:", error);
     res.status(500).json({ error: "An error occurred while syncing staff records." });
   }
 };
@@ -946,7 +949,7 @@ exports.syncStaffFromCdrLiveEmployeeDetail = async (req, res) => {
       updatedEmployees,
     });
   } catch (error) {
-    logger.error("Error syncing staff from CDR employee detail:", error);
+    logError("Error syncing staff from CDR employee detail:", error);
     res.status(500).json({
       error: "An error occurred while syncing staff from CDR employee detail.",
       details:
@@ -1076,6 +1079,7 @@ exports.syncStaffFromNewEmployeeList = async (req, res) => {
             Division: department || "Not Specified",
           });
         } catch (createError) {
+          logError("Error creating staff record during sync", createError);
           createFailedEmployees.push({
             id: row.id,
             EmployeeCode: sourceCode,
@@ -1152,7 +1156,7 @@ exports.syncStaffFromNewEmployeeList = async (req, res) => {
       updatedEmployees,
     });
   } catch (error) {
-    logger.error("Error syncing staff from new_employee_list:", error);
+    logError("Error syncing staff from new_employee_list:", error);
     res.status(500).json({
       error: "An error occurred while syncing staff from new_employee_list.",
       details:
@@ -1230,7 +1234,7 @@ exports.syncStaffFromTempData = async (req, res) => {
 
     res.status(200).json({ message: "Staff records synced successfully from TempData." });
   } catch (error) {
-    console.error("Error syncing staff from TempData:", error);
+    logError("Error syncing staff from TempData:", error);
     res.status(500).json({ error: "An error occurred while syncing staff from TempData." });
   }
 };
@@ -1433,7 +1437,7 @@ ContractEndDate: matchingStaffDevice
     });
 
   } catch (error) {
-    console.error("Error syncing contracts from related tables:", error);
+    logError("Error syncing contracts from related tables:", error);
     // Step 6: Handle and send an error response
     res.status(500).json({
       error: "An error occurred while syncing contracts from related tables.",
@@ -1562,7 +1566,7 @@ function calculateEndDate(startDate, period) {
 //     });
 
 //   } catch (error) {
-//     console.error("Error syncing contracts from related tables:", error);
+//     logError("Error syncing contracts from related tables:", error);
 //     res.status(500).json({
 //       error: "An error occurred while syncing contracts from related tables.",
 //       details: error.message
@@ -1728,7 +1732,7 @@ results.push({
       details: results,
     });
   } catch (error) {
-    console.error("Error syncing spectra:", error);
+    logError("Error syncing spectra:", error);
     res.status(500).json({
       error: "An error occurred while syncing spectra data.",
       details: error.message,
@@ -1848,7 +1852,7 @@ matchedCount++;
       details: results,
     });
   } catch (error) {
-    console.error("Error syncing handsets:", error);
+    logError("Error syncing handsets:", error);
     res.status(500).json({
       error: "An error occurred while syncing handset data.",
       details: error.message,
@@ -1872,7 +1876,7 @@ exports.makeAllNamesUppercase = async (req, res) => {
     }
     res.status(200).json({ message: "Staff names updated to uppercase successfully." });
   } catch (error) {
-    console.error("Error updating staff names to uppercase:", error);
+    logError("Error updating staff names to uppercase:", error);
     res.status(500).json({ error: "An error occurred while updating staff names to uppercase." });
   }
 }
@@ -1898,7 +1902,7 @@ exports.syncDPSGEPData = async (req, res) => {
 
     res.status(200).json({ message: "Staff records updated successfully from StaffP." });
   } catch (error) {
-    console.error("Error updating Staff from StaffP:", error);
+    logError("Error updating Staff from StaffP:", error);
     res.status(500).json({ error: "An error occurred while updating Staff from StaffP." });
   }
 }
@@ -1911,7 +1915,7 @@ exports.syncTempAllocationData = async (req, res) => {
 
     res.status(200).json({ message: "Temporary staff allocation updated successfully." });
   } catch (error) {
-    console.error("Error updating temporary staff allocation:", error);
+    logError("Error updating temporary staff allocation:", error);
     res.status(500).json({ error: "An error occurred while updating temporary staff allocation." });
   }
 }
@@ -1977,7 +1981,7 @@ renewalDate.setFullYear(renewalDate.getFullYear() + 2);
     });
 
   } catch (error) {
-    console.error("Error processing and inserting records:", error);
+    logError("Error processing and inserting records:", error);
     res.status(500).json({
       error: "An error occurred while processing and inserting records."
     });

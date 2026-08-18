@@ -1,6 +1,6 @@
+const { logError } = require('../middlewares/errorLogger');
 const Notifications = require("../models/Notifications");
 const { io } = require("../server");
-const logger = require ("../middlewares/errorLogger");
 const Staff = require("../models/Staff");
 const sequelize = require("../config/database");
 const { Op } = require("sequelize");
@@ -56,12 +56,12 @@ exports.createNotification = async (req, res) => {
     if (io) {
       io.emit("notification", notification);
     } else {
-      console.error("IO object is undefined");
+      logError("IO object is undefined");
     }
 
     res.status(201).json(notification);
   } catch (error) {
-    logger.error("Error creating notification:", error);
+    logError("Error creating notification:", error);
     res.status(500).json({
       message: "Failed to create notification:",
       error: process.env.NODE_ENV === "production" ? undefined : error.message,
@@ -127,7 +127,7 @@ exports.createAdminNotifications = async (req, res) => {
     });
 
   } catch (error) {
-    logger.error("Error creating notification:", error);
+    logError("Error creating notification:", error);
     res.status(500).json({
       message: "Failed to create notification",
       error: process.env.NODE_ENV === "production" ? undefined : error.message,
@@ -149,7 +149,7 @@ exports.getNotifications = async (req, res) => {
       console.log("My notifications: ",notifications)
     res.status(200).json(notifications);
   } catch (error) {
-    logger.error("Error retrieving notification:", error);
+    logError("Error retrieving notification:", error);
     res.status(500).json({
       message: "Failed to retrieve notification:",
       error: process.env.NODE_ENV === "production" ? undefined : error.message,
@@ -173,7 +173,7 @@ exports.getAdminNotifications = async (req, res) => {
 
     res.status(200).json({ count: notificationCount });
   } catch (error) {
-    logger.error("Error retrieving notification count:", error);
+    logError("Error retrieving notification count:", error);
     res.status(500).json({
       message: "Failed to retrieve notification count",
       error: process.env.NODE_ENV === "production" ? undefined : error.message,
@@ -209,7 +209,7 @@ exports.markNotificationAsRead = async (req, res) => {
       updatedCount: updatedRows,
     });
   } catch (error) {
-    logger.error("Error marking specific notification as read:", error);
+    logError("Error marking specific notification as read:", error);
     res.status(500).json({
       message: "Failed to mark notification as read.",
       error: process.env.NODE_ENV === "production" ? undefined : error.message,
@@ -223,7 +223,7 @@ exports.removeNotification = async (req, res) => {
     await Notifications.destroy({where:{NotificationID: id}});
     res.status(200).json({ message: "Notification deleted successfully." });
   } catch (error) {
-    logger.error("Error marking specific notification as read:", error);
+    logError("Error marking specific notification as read:", error);
     res.status(500).json({
       message: "Failed to mark notification as read.",
       error: process.env.NODE_ENV === "production" ? undefined : error.message,

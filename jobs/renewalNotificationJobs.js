@@ -1,3 +1,4 @@
+const { logError } = require('../middlewares/errorLogger');
 const { Op } = require("sequelize");
 const sequelize = require("../config/database");
 const logger = require("../middlewares/errorLogger");
@@ -176,6 +177,7 @@ async function createNotificationIfAbsent(employeeCode, type, message, since) {
     await transaction.commit();
     return true;
   } catch (error) {
+    logError(error);
     await transaction.rollback();
     throw error;
   }
@@ -213,6 +215,7 @@ async function expireContractAndNotifyIfAbsent(contract, message, since) {
     await transaction.commit();
     return true;
   } catch (error) {
+    logError(error);
     await transaction.rollback();
     throw error;
   }
@@ -251,7 +254,7 @@ async function processHandsetWeekRenewals() {
         sevenDaysStart
       );
     } catch (error) {
-      logger.error(
+      logError(
         `Handset 7-day notification failed for employee ${handset.employee_code}:`,
         error
       );
@@ -287,7 +290,7 @@ async function processHandsetRenewalsDueToday() {
         todayStart
       );
     } catch (error) {
-      logger.error(
+      logError(
         `Handset same-day notification failed for employee ${handset.employee_code}:`,
         error
       );
@@ -320,7 +323,7 @@ async function processContractWeekRenewals() {
         sevenDaysStart
       );
     } catch (error) {
-      logger.error(
+      logError(
         `Contract 7-day notification failed for employee ${contract.employee_code}:`,
         error
       );
@@ -353,7 +356,7 @@ async function processContractsExpiringToday() {
         todayStart
       );
     } catch (error) {
-      logger.error(
+      logError(
         `Contract same-day notification failed for employee ${contract.employee_code}:`,
         error
       );

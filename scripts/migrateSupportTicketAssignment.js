@@ -1,3 +1,4 @@
+const { logError } = require('../middlewares/errorLogger');
 require("dotenv").config();
 const sequelize = require("../config/database");
 
@@ -15,6 +16,7 @@ const alters = [
         await sequelize.query(sql);
         console.log("OK:", sql);
       } catch (error) {
+        logError(error);
         if (error.original?.errno === 1060) {
           console.log("SKIP (already exists):", sql);
           continue;
@@ -24,6 +26,7 @@ const alters = [
     }
     console.log("Support ticket columns ready.");
   } catch (error) {
+    logError(error);
     console.error("Migration failed:", error.message);
     process.exitCode = 1;
   } finally {

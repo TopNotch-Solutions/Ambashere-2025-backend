@@ -1,3 +1,4 @@
+const { logError } = require('../middlewares/errorLogger');
 const { Op, QueryTypes } = require("sequelize");
 const sequelize = require("../config/database");
 const logger = require("../middlewares/errorLogger");
@@ -64,6 +65,7 @@ async function claimNotificationForEmail(notificationId) {
     await transaction.commit();
     return true;
   } catch (error) {
+    logError(error);
     await transaction.rollback();
     throw error;
   }
@@ -81,6 +83,7 @@ async function releaseNotificationEmailClaim(notificationId) {
     );
     await transaction.commit();
   } catch (error) {
+    logError(error);
     await transaction.rollback();
     throw error;
   }
@@ -138,11 +141,12 @@ async function processNotificationEmails() {
             ` (notification ${notificationId})`
         );
       } catch (emailError) {
+        logError(emailError);
         await releaseNotificationEmailClaim(notificationId);
         throw emailError;
       }
     } catch (error) {
-      logger.error(`Failed to email notification ${notificationId}:`, error);
+      logError(`Failed to email notification ${notificationId}:`, error);
     }
   }
 }
@@ -238,11 +242,12 @@ async function processCalendarNotificationEmails() {
             ` (notification ${notificationId})`
         );
       } catch (emailError) {
+        logError(emailError);
         await releaseNotificationEmailClaim(notificationId);
         throw emailError;
       }
     } catch (error) {
-      logger.error(
+      logError(
         `Failed to email calendar notification ${notificationId}:`,
         error
       );

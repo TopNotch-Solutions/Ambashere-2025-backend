@@ -1,3 +1,4 @@
+const { logError } = require('../middlewares/errorLogger');
 const nodemailer = require('nodemailer');
 const Staff = require('../models/Staff');
 const { where } = require('sequelize');
@@ -123,6 +124,7 @@ const sendFinanceTeamEmail = async (senderEmail, subject, handsetData) => {
     };
 
   } catch (error) {
+    logError(error);
     console.error('Error sending finance team email:', error);
     throw new Error(`Finance team email could not be sent: ${error.message}`);
   }
@@ -171,6 +173,7 @@ const sendFinanceMemberEmail = async (recipientEmail, subject, handsetData) => {
     return info;
 
   } catch (error) {
+    logError(error);
     console.error('Error sending finance member email:', error);
     throw new Error(`Finance member email could not be sent: ${error.message}`);
   }

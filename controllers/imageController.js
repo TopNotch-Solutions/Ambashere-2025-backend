@@ -2,7 +2,7 @@ const Image = require("../models/Image");
 const Staff = require("../models/Staff");
 const sequelize = require("../config/database");
 const upload = require("multer")(); 
-const logger = require("../middlewares/errorLogger")
+const { logError } = require("../middlewares/errorLogger");
 
 function normalizeEmployeeCode(employeeCode) {
   return String(employeeCode || "")
@@ -60,7 +60,7 @@ exports.updateProfilePicture = upload.single("profilePhoto", async (req, res) =>
         where: normalizedEmployeeCodeWhere("EmployeeCode", userId),
       });
     } catch (error) {
-      console.error("Error fetching existing profile picture:", error);
+      logError("Error fetching existing profile picture", error);
       return res.status(500).json({ message: "Server error" });
     }
 
@@ -74,7 +74,7 @@ exports.updateProfilePicture = upload.single("profilePhoto", async (req, res) =>
       try {
         await existingImage.save();
       } catch (error) {
-        console.error("Error updating profile picture:", error);
+        logError("Error updating profile picture", error);
         return res.status(500).json({ message: "Server error" });
       }
     } else {
@@ -95,7 +95,7 @@ exports.updateProfilePicture = upload.single("profilePhoto", async (req, res) =>
       try {
         await newImage.save();
       } catch (error) {
-        console.error("Error saving profile picture:", error);
+        logError("Error saving profile picture", error);
         return res.status(500).json({ message: "Server error" });
       }
     }
@@ -103,7 +103,7 @@ exports.updateProfilePicture = upload.single("profilePhoto", async (req, res) =>
     // console.log("Request parameters:", req.body, req.file);
     res.status(200).json({ message: "Profile picture updated successfully" });
   } catch (error) {
-    console.error("Error updating profile picture:", error);
+    logError("Error updating profile picture", error);
     res.status(500).json({ message: "Server error" });
   }
 });
@@ -122,7 +122,7 @@ exports.getProfilePicture = async (req, res) => {
         where: normalizedEmployeeCodeWhere("EmployeeCode", userId),
       });
     } catch (error) {
-      console.error("Error fetching profile picture:", error);
+      logError("Error fetching profile picture", error);
       return res.status(500).json({ message: "Server error" });
     }
 
@@ -132,7 +132,7 @@ exports.getProfilePicture = async (req, res) => {
   
     res.status(200).json(profilePicture);
   } catch (error) {
-    console.error("Error fetching profile picture:", error);
+    logError("Error fetching profile picture", error);
     res.status(500).json({ message: "Server error" });
   }
 };
@@ -172,7 +172,7 @@ exports.postProfilePicture = async (req, res) => {
    
     }
  }catch(error){
-  console.error("Error fetching profile picture:", error);
+  logError("Error updating staff profile picture", error);
     res.status(500).json({ message: "Server error " + error.message });
  }
 }

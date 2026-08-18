@@ -3,6 +3,7 @@ const sequelize = require("../config/database");
 const Employees = require("../models/Staff");
 const Voucher = require("../models/Voucher");
 const logger = require("../middlewares/errorLogger");
+const { logError } = logger;
 const { Op, fn, col, where, QueryTypes } = require("sequelize");
 const Staff = require("../models/Staff");
 const Allocation = require("../models/Allocation");
@@ -98,6 +99,93 @@ async function notifyAirtimeContractSubmission({
   });
 }
 
+async function notifyAirtimeContractCancellation({
+  employeeCode,
+  employee,
+  submission,
+}) {
+  const employeeName = employee?.FullName || employeeCode;
+  const details = buildSubmissionDetailsMessage([submission]);
+
+  const userMessage =
+    `Your airtime benefit request has been cancelled.\n\n` +
+    `Employee: ${employeeName} (${employeeCode})\n\n` +
+    `${details}\n\n` +
+    `You may submit a new airtime benefit request when you are eligible.`;
+
+  const adminMessage =
+    `An airtime benefit request has been cancelled by the employee.\n\n` +
+    `Employee: ${employeeName} (${employeeCode})\n` +
+    `Email: ${employee?.Email || "-"}\n` +
+    `Request Date: ${new Date(submission.contract_submitted_date).toLocaleDateString()}\n\n` +
+    `${details}`;
+
+  await notifySubmissionParties({
+    employeeCode,
+    employee,
+    userType: "Airtime Contract Cancelled",
+    userMessage,
+    adminType: "Airtime Contract Cancelled",
+    adminMessage,
+    userEmailSubject: "Airtime Benefit Request Cancelled",
+    adminEmailSubject: `Airtime Contract Cancelled - ${employeeName} (${employeeCode})`,
+  });
+}
+
+async function deleteMatchingPendingContract(submission) {
+  const employeeCode = normalizeEmployeeCode(submission.employeeCode);
+  const duration = Math.trunc(Number(submission.contract_duration));
+  const deviceMonthly = parseFloat(submission.device_monthly_price) || 0;
+  const serviceMonthly = parseFloat(submission.serviceplan_monthly_price) || 0;
+  const monthlyPayment = deviceMonthly + serviceMonthly;
+
+  const whereClause = {
+    [Op.and]: [
+      normalizedEmployeeCodeWhere("EmployeeCode", employeeCode),
+      { ApprovalStatus: "Pending" },
+      { ContractDuration: duration },
+    ],
+  };
+
+  if (submission.device) {
+    whereClause[Op.and].push({ DeviceName: submission.device });
+  }
+
+  const pkg = await Packages.findOne({ where: { PackageName: submission.package } });
+  if (pkg) {
+    whereClause[Op.and].push({ PackageID: pkg.PackageID });
+  }
+
+  let contract = await Contract.findOne({
+    where: whereClause,
+    order: [["ContractNumber", "DESC"]],
+  });
+
+  if (!contract && monthlyPayment > 0) {
+    const pendingContracts = await Contract.findAll({
+      where: {
+        [Op.and]: [
+          normalizedEmployeeCodeWhere("EmployeeCode", employeeCode),
+          { ApprovalStatus: "Pending" },
+          { ContractDuration: duration },
+        ],
+      },
+      order: [["ContractNumber", "DESC"]],
+    });
+
+    contract = pendingContracts.find((item) => {
+      const itemMonthly = parseFloat(item.MonthlyPayment) || 0;
+      const deviceMatches =
+        (item.DeviceName || null) === (submission.device || null);
+      return deviceMatches && Math.abs(itemMonthly - monthlyPayment) < 0.01;
+    });
+  }
+
+  if (contract) {
+    await contract.destroy();
+  }
+}
+
 function normalizeEmployeeCode(employeeCode) {
   return String(employeeCode || "")
     .trim()
@@ -108,8 +196,10 @@ function normalizeEmployeeCode(employeeCode) {
 async function getOpenAirtimeSubmissions(employeeCode) {
   return AirtimeContractSubmission.findAll({
     where: {
-      employeeCode,
-      subscription_status: { [Op.in]: OPEN_SUBMISSION_STATUSES },
+      [Op.and]: [
+        normalizedEmployeeCodeWhere("employeeCode", employeeCode),
+        { subscription_status: { [Op.in]: OPEN_SUBMISSION_STATUSES } },
+      ],
     },
     order: [["contract_submitted_date", "DESC"]],
   });
@@ -199,7 +289,7 @@ exports.getContracts = async (req, res) => {
     );
     res.json(contracts);
   } catch (error) {
-    console.error("Error fetching contracts:", error?.message, error?.stack);
+    logError("Error fetching contracts:", error?.message, error?.stack);
     res.status(500).json({
       message: "Internal Server Error",
       error: process.env.NODE_ENV === "production" ? undefined : error.message,
@@ -263,7 +353,7 @@ exports.getExisting = async (req, res) => {
 
     res.json(contracts);
   } catch (error) {
-    console.error("Error fetching contracts:", error?.message, error?.stack);
+    logError("Error fetching contracts:", error?.message, error?.stack);
     res.status(500).json({
       message: "Internal Server Error",
       error: process.env.NODE_ENV === "production" ? undefined : error.message,
@@ -299,7 +389,7 @@ exports.getSingleContracts = async (req, res) => {
     if(!pack) return res.status(500).json({message: "No package with the provided id"})
     res.json({contracts: contracts[0], package: pack}); // Assuming ContractNumber is unique, return the first (and only) result
   } catch (error) {
-    console.error("Error fetching single contract:", error?.message, error?.stack);
+    logError("Error fetching single contract:", error?.message, error?.stack);
     res.status(500).json({
       message: "Internal Server Error",
       error: process.env.NODE_ENV === "production" ? undefined : error.message,
@@ -324,8 +414,7 @@ exports.getStaffContracts = async (req, res) => {
     console.log("staffContracts yes today:", staffContracts);
     res.status(200).json(staffContracts);
   } catch (error) {
-    console.error("Error fetching staff contracts:", error);  
-    logger.error(error);
+    logError(error);
     res.status(500).json({
       message: "Failed to retrieve staff contracts.:",
       error: process.env.NODE_ENV === "production" ? undefined : error.message,
@@ -451,7 +540,7 @@ exports.getStaffContractById = async (req, res) => {
       contracts: [...activeCdrContracts, ...openSubmissionContracts],
     });
   } catch (error) {
-    logger.error(error);
+    logError(error);
     res.status(500).json({
       message: "Failed to retrieve staff member's contracts.:",
       error: process.env.NODE_ENV === "production" ? undefined : error.message,
@@ -494,7 +583,7 @@ exports.getTempContractById = async (req, res) => {
     console.log("Successfully retrieved temp contract info:", tempInfo);
     res.status(200).json(tempInfo);
   } catch (error) {
-    console.error("Error retrieving temp contract by ID:", error);
+    logError("Error retrieving temp contract by ID:", error);
     res.status(500).json({
       message: "Failed to retrieve staff member's contracts.",
       error,
@@ -550,7 +639,7 @@ exports.createInitialContract = async (req, res) => {
     for (const pkg of Packages) {
       // Validate essential fields for each package
       if (!pkg.PackageID || !pkg.SubscriptionStatus || pkg.AdjustedMonthlyPrice === undefined || !pkg.ContractDuration) {
-        logger.error(`Malformed package data received for EmployeeCode ${normalizedEmployeeCode}:`, pkg);
+        logError(`Malformed package data received for EmployeeCode ${normalizedEmployeeCode}:`, pkg);
         // Optionally, roll back any contracts already created in this loop
         return res.status(400).json({ message: `Invalid data for package ID ${pkg.PackageID || 'unknown'}.` });
       }
@@ -594,7 +683,7 @@ exports.createInitialContract = async (req, res) => {
               .toLowerCase()
               .includes("unknown column")
           ) {
-            logger.error(limitError);
+            logError(limitError);
           }
         }
       }
@@ -662,7 +751,7 @@ exports.createInitialContract = async (req, res) => {
           limitCheck: normalizedLimitCheck,
         });
       } catch (notifyError) {
-        logger.error(
+        logError(
           "Airtime contract created but notification failed:",
           notifyError
         );
@@ -670,7 +759,7 @@ exports.createInitialContract = async (req, res) => {
     });
 
   } catch (error) {
-    logger.error("Error creating contracts:", error);
+    logError("Error creating contracts:", error);
     res.status(500).json({
       message: "Failed to create contracts.",
       error: process.env.NODE_ENV === "production" ? undefined : error.message,
@@ -749,7 +838,7 @@ exports.createExistingData = async (req, res) => {
       data: savedContract,
     });
   } catch (error) {
-    console.error("Error creating contract data:", error);
+    logError("Error creating contract data:", error);
     res.status(500).json({
       message: "Failed to create contract data.",
       error: process.env.NODE_ENV === "production" ? undefined : error.message,
@@ -769,6 +858,7 @@ exports.getPendingContracts = async (req, res) => {
 
     return latestPendingContract;
   } catch (error) {
+    logError("Error fetching pending contract", error);
     return res.status(500).json({ message: error.message });
   }
 };
@@ -795,6 +885,7 @@ exports.getPendingEmployeeContracts = async (req, res) => {
         .json({ message: "No pending contract found for this employee." });
     }
   } catch (error) {
+    logError("Error fetching pending employee contracts", error);
     return res.status(500).json({ message: error.message });
   }
 };
@@ -854,7 +945,7 @@ exports.createContract = async (req, res) => {
       contract: newContract, // Optionally, send back the created contract data
     });
   } catch (error) {
-    logger.error(error);
+    logError(error);
     res.status(500).json({
       message: "Failed to create initial contract:",
       error: process.env.NODE_ENV === "production" ? undefined : error.message,
@@ -904,7 +995,7 @@ exports.finalizeContract = async (req, res) => {
       contract: finalContract,
     });
   } catch (error) {
-    logger.error(error);
+    logError(error);
     res.status(500).json({
       message: "Failed to finalize contract:",
       error: process.env.NODE_ENV === "production" ? undefined : error.message,
@@ -979,7 +1070,7 @@ exports.updateExistingData = async (req, res) => {
     });
     
   }catch (error) {
-    logger.error(error);
+    logError(error);
     res.status(500).json({
       message: "Failed to finalize contract:",
       error: process.env.NODE_ENV === "production" ? undefined : error.message,
@@ -1010,7 +1101,7 @@ exports.updateContractWithDevice = async (req, res) => {
       contract,
     });
   } catch (error) {
-    logger.error(error);
+    logError(error);
     res.status(500).json({
       message: "Failed to update contract:",
       error: process.env.NODE_ENV === "production" ? undefined : error.message,
@@ -1042,6 +1133,7 @@ exports.updateContracts = async (req, res) => { // Renamed function
     try {
       fieldsToUpdate.UpfrontPayment = UpfrontPayment === "" || UpfrontPayment === null ? 0 : parseFloat(UpfrontPayment) || 0;
     } catch (error) {
+      logError(error);
       logger.warn(`Invalid UpfrontPayment value: ${UpfrontPayment}, defaulting to 0`);
       fieldsToUpdate.UpfrontPayment = 0;
     }
@@ -1051,6 +1143,7 @@ exports.updateContracts = async (req, res) => { // Renamed function
     try {
       fieldsToUpdate.DevicePrice = DevicePrice === "" || DevicePrice === null ? 0 : parseFloat(DevicePrice) || 0;
     } catch (error) {
+      logError(error);
       logger.warn(`Invalid DevicePrice value: ${DevicePrice}, defaulting to 0`);
       fieldsToUpdate.DevicePrice = 0;
     }
@@ -1060,6 +1153,7 @@ exports.updateContracts = async (req, res) => { // Renamed function
     try {
       fieldsToUpdate.DeviceMonthlyPrice = DeviceMonthlyPrice === "" || DeviceMonthlyPrice === null ? 0 : parseFloat(DeviceMonthlyPrice) || 0;
     } catch (error) {
+      logError(error);
       logger.warn(`Invalid DeviceMonthlyPrice value: ${DeviceMonthlyPrice}, defaulting to 0`);
       fieldsToUpdate.DeviceMonthlyPrice = 0;
     }
@@ -1108,7 +1202,7 @@ exports.updateContracts = async (req, res) => { // Renamed function
     });
 
   } catch (error) {
-    logger.error(
+    logError(
       `Error updating contract with ID: ${id}`, // Corrected variable
       error
     );
@@ -1136,7 +1230,7 @@ exports.getContractById = async (req, res) => {
     // console.log(`Contract found: ${JSON.stringify(contract)}`); // Log the found contract
     res.status(200).json(contract);
   } catch (error) {
-    logger.error(
+    logError(
       `Error fetching contract with ContractNumber: ${contractNumber}`,
       error
     ); // Log the error
@@ -1171,7 +1265,7 @@ exports.getContractById = async (req, res) => {
 //     // console.log(`Contract found: ${JSON.stringify(contract)}`); // Log the found contract
 //     res.status(200).json(contract);
 //   } catch (error) {
-//     logger.error(
+//     logError(
 //       `Error fetching contract with ContractNumber: ${contractNumber} and EmployeeCode: ${employeeCode}`,
 //       error
 //     ); // Log the error
@@ -1215,7 +1309,7 @@ exports.updateContract = async (req, res) => {
       contract: contract,
     });
   } catch (error) {
-    logger.error(error);
+    logError(error);
     res.status(500).json({
       message: "Failed to retrieve update contracts.:",
       error: process.env.NODE_ENV === "production" ? undefined : error.message,
@@ -1248,6 +1342,7 @@ exports.approveContract = async (req, res) => {
       .status(200)
       .json({ message: "Contract approved successfully", updatedContract });
   } catch (error) {
+    logError("Error approving contract", error);
     return res.status(500).json({ message: error.message });
   }
 };
@@ -1279,7 +1374,7 @@ exports.rejectContract = async (req, res) => {
       contract: contract,
     });
   } catch (error) {
-    logger.error("Error rejecting contract:", error);
+    logError("Error rejecting contract:", error);
     res.status(500).json({
       message: "Failed to reject staff contracts.:",
       error: process.env.NODE_ENV === "production" ? undefined : error.message,
@@ -1302,7 +1397,7 @@ exports.getContractsCreatedPerMonth = async (req, res) => {
     console.log("createdContracts", createdContracts);
     res.json(createdContracts);
   } catch (error) {
-    console.error("Error fetching contracts created per month:", error);
+    logError("Error fetching contracts created per month:", error);
     res.status(500).json({ message: "Server error" });
   }
 };
@@ -1326,7 +1421,7 @@ exports.getContractsEndedPerMonth = async (req, res) => {
     console.log("endedContracts", endedContracts);
     res.json(endedContracts);
   } catch (error) {
-    console.error("Error fetching contracts ended per month:", error);
+    logError("Error fetching contracts ended per month:", error);
     res.status(500).json({ message: "Server error" });
   }
 };
@@ -1356,7 +1451,7 @@ exports.deleteContract = async (req, res) => {
     return res.status(200).json({ message: "Contract deleted successfully." });
 
   } catch (error) {
-    console.error("Error deleting contract:", error); // Changed log message for clarity
+    logError("Error deleting contract:", error); // Changed log message for clarity
     res.status(500).json({ message: "Server error during contract deletion. Please try again." }); // More descriptive error
   }
 };
@@ -1371,7 +1466,7 @@ exports.getAirtimeSubmissionsTotal = async (req, res) => {
     const count = await AirtimeContractSubmission.count();
     res.status(200).json({ count });
   } catch (error) {
-    logger.error("Error counting airtime submissions:", error);
+    logError("Error counting airtime submissions:", error);
     res.status(500).json({ message: "Failed to count airtime submissions." });
   }
 };
@@ -1387,7 +1482,7 @@ exports.getAirtimeSubmissionsPerMonth = async (req, res) => {
     );
     res.status(200).json(rows);
   } catch (error) {
-    logger.error("Error fetching airtime submissions per month:", error);
+    logError("Error fetching airtime submissions per month:", error);
     res.status(500).json({ message: "Failed to fetch submissions per month." });
   }
 };
@@ -1406,20 +1501,21 @@ exports.getActiveAirtimeSubmissions = async (req, res) => {
        LEFT JOIN employees a
          ON ${normalizedEmployeeCodeSql("s.assignedAdminCode")} =
             ${normalizedEmployeeCodeSql("a.EmployeeCode")}
-       WHERE s.subscription_status IN ('pending', 'in progress', 'completed')
+       WHERE s.subscription_status IN ('pending', 'in progress', 'completed', 'cancelled')
        ORDER BY
          CASE s.subscription_status
            WHEN 'pending' THEN 1
            WHEN 'in progress' THEN 2
            WHEN 'completed' THEN 3
-           ELSE 4
+           WHEN 'cancelled' THEN 4
+           ELSE 5
          END,
          s.contract_submitted_date DESC`,
       { type: QueryTypes.SELECT }
     );
     res.status(200).json({ submissions });
   } catch (error) {
-    logger.error("Error fetching active airtime submissions:", error);
+    logError("Error fetching active airtime submissions:", error);
     res.status(500).json({ message: "Failed to fetch active submissions." });
   }
 };
@@ -1444,6 +1540,13 @@ exports.updateAirtimeSubmissionStatus = async (req, res) => {
     }
 
     const currentStatus = submission.subscription_status;
+
+    if (currentStatus === "cancelled") {
+      return res.status(400).json({
+        message: "Cancelled submissions cannot be updated.",
+      });
+    }
+
     const allowedNext = STATUS_TRANSITIONS[currentStatus];
 
     if (!allowedNext || nextStatus !== allowedNext) {
@@ -1479,7 +1582,75 @@ exports.updateAirtimeSubmissionStatus = async (req, res) => {
       submission,
     });
   } catch (error) {
-    logger.error("Error updating airtime submission status:", error);
+    logError("Error updating airtime submission status:", error);
     res.status(500).json({ message: "Failed to update submission status." });
+  }
+};
+
+exports.cancelAirtimeSubmission = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const employeeCode = normalizeEmployeeCode(req.user?.EmployeeCode);
+
+    if (!id) {
+      return res.status(400).json({ message: "Submission id is required." });
+    }
+
+    if (!employeeCode) {
+      return res.status(400).json({ message: "Employee code is required." });
+    }
+
+    const submission = await AirtimeContractSubmission.findByPk(id);
+    if (!submission) {
+      return res.status(404).json({ message: "Submission not found." });
+    }
+
+    if (normalizeEmployeeCode(submission.employeeCode) !== employeeCode) {
+      return res.status(403).json({
+        message: "You can only cancel your own airtime benefit request.",
+      });
+    }
+
+    if (submission.subscription_status !== "pending") {
+      return res.status(400).json({
+        message: "Only pending airtime benefit requests can be cancelled.",
+      });
+    }
+
+    const employee = await findStaffByEmployeeCode(submission.employeeCode);
+
+    submission.subscription_status = "cancelled";
+    submission.cancelledAt = new Date();
+    await submission.save();
+
+    try {
+      await deleteMatchingPendingContract(submission);
+    } catch (cleanupError) {
+      logError(
+        "Airtime request cancelled but pending contract cleanup failed:",
+        cleanupError
+      );
+    }
+
+    setImmediate(async () => {
+      try {
+        await notifyAirtimeContractCancellation({
+          employeeCode: submission.employeeCode,
+          employee,
+          submission,
+        });
+      } catch (notifyError) {
+        logError("Airtime request cancelled but notification failed:", notifyError);
+      }
+    });
+
+    res.status(200).json({
+      success: true,
+      message: "Airtime benefit request cancelled successfully.",
+      submission,
+    });
+  } catch (error) {
+    logError("Error cancelling airtime submission:", error);
+    res.status(500).json({ message: "Failed to cancel airtime benefit request." });
   }
 };

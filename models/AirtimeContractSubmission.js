@@ -69,9 +69,13 @@ const AirtimeContractSubmission = sequelize.define(
       allowNull: true,
     },
     subscription_status: {
-      type: DataTypes.ENUM("pending", "in progress", "completed"),
+      type: DataTypes.ENUM("pending", "in progress", "completed", "cancelled"),
       allowNull: false,
       defaultValue: "pending",
+    },
+    cancelledAt: {
+      type: DataTypes.DATE,
+      allowNull: true,
     },
     assignedAdminCode: {
       type: DataTypes.STRING(50),

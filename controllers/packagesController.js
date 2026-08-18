@@ -1,6 +1,7 @@
 const Packages = require("../models/Packages");
 const sequelize = require("../config/database");
-const logger = require("../middlewares/errorLogger");
+const logger = require('../middlewares/errorLogger');
+const { logError } = logger;
 
 const toBoolean = (value, defaultValue = true) => {
   if (value === undefined || value === null || value === "") {
@@ -86,7 +87,7 @@ exports.createPackage = async (req, res) => {
     const savedPackage = await Packages.findByPk(newPackage.PackageID);
     res.status(200).json(savedPackage || newPackage);
   } catch (error) {
-    logger.error(error);
+    logError(error);
     res.status(500).json({
       message: "Failed to create package:",
       error: process.env.NODE_ENV === "production" ? undefined : error.message,
@@ -100,7 +101,7 @@ exports.getPackages = async (req, res) => {
     res.status(200).json(packages);
   } catch (error) {
     console.log("Here is the error:", error);
-    logger.error(error);
+    logError(error);
     res.status(500).json({
       message: "Failed to retrieve package details:",
       error: process.env.NODE_ENV === "production" ? undefined : error.message,
@@ -218,7 +219,7 @@ exports.updatePackage = async (req, res) => {
       package: updatedPackage,
     });
   } catch (error) {
-    logger.error(error);
+    logError(error);
     return res.status(500).json({
       message: "Failed to update package.",
       error: process.env.NODE_ENV === "production" ? undefined : error.message,
@@ -252,7 +253,7 @@ exports.removePackage = async (req, res) => {
       });
     }
   } catch (error) {
-    logger.error(error);
+    logError(error);
     res.status(500).json({
       message: "Failed to delete package.",
       error: process.env.NODE_ENV === "production" ? undefined : error.message,
@@ -269,6 +270,7 @@ exports.getPackageList = async (req, res) => {
         { type: sequelize.QueryTypes.SELECT }
       );
     } catch (columnError) {
+      logError(columnError);
       console.log("Package column issue, falling back for package list");
       try {
         staffPackages = await sequelize.query(
@@ -281,6 +283,7 @@ exports.getPackageList = async (req, res) => {
           DeviceLimit: null,
         }));
       } catch (fallbackError) {
+        logError(fallbackError);
         try {
           staffPackages = await sequelize.query(
             `SELECT PackageID, PackageName, MonthlyPrice FROM packages WHERE IsActive = true`,
@@ -293,6 +296,7 @@ exports.getPackageList = async (req, res) => {
             DeviceLimit: null,
           }));
         } catch (finalFallbackError) {
+          logError(finalFallbackError);
           staffPackages = await sequelize.query(
             `SELECT PackageID, PackageName, MonthlyPrice FROM packages`,
             { type: sequelize.QueryTypes.SELECT }
@@ -309,7 +313,7 @@ exports.getPackageList = async (req, res) => {
 
     res.status(200).json(staffPackages);
   } catch (error) {
-    logger.error(error);
+    logError(error);
     res.status(500).json({
       message: "Failed to retrieve package list:",
       error: process.env.NODE_ENV === "production" ? undefined : error.message,
@@ -326,6 +330,7 @@ exports.getActivePackages = async (req, res) => {
         order: [["PackageName", "ASC"]],
       });
     } catch (columnError) {
+      logError(columnError);
       console.log("IsActive column not found, returning all packages");
       activePackages = await Packages.findAll({
         order: [["PackageName", "ASC"]],
@@ -334,7 +339,7 @@ exports.getActivePackages = async (req, res) => {
 
     res.status(200).json(activePackages);
   } catch (error) {
-    logger.error(error);
+    logError(error);
     res.status(500).json({
       message: "Failed to retrieve active packages:",
       error: process.env.NODE_ENV === "production" ? undefined : error.message,
@@ -350,7 +355,7 @@ exports.getPackageById = async (req, res) => {
     }
     res.json(packageRecord);
   } catch (error) {
-    logger.error(error);
+    logError(error);
     res.status(500).json({
       message: "Failed to retrieve package by employee code:",
       error: process.env.NODE_ENV === "production" ? undefined : error.message,

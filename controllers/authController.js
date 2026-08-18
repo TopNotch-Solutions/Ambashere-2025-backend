@@ -4,7 +4,8 @@ const {
   createRefreshToken,
 } = require("../middlewares/jwtGenerationMiddleware");
 const jwt = require("jsonwebtoken");
-const logger = require("../middlewares/errorLogger");
+const logger = require('../middlewares/errorLogger');
+const { logError } = logger;
 const authenticate = require("../middlewares/ldapAuth");
 
 // exports.login = async (req, res) => {
@@ -23,7 +24,7 @@ const authenticate = require("../middlewares/ldapAuth");
 //     // LDAP authentication
 //     authenticate(Username, Password,async (err, userDN) => {
 //       if (err) {
-//         console.error("We're experiencing technical difficulties. Please try again in a few minutes.:", err);
+//         logError("We're experiencing technical difficulties. Please try again in a few minutes.:", err);
 //         return res.status(401).json({ message: "We're experiencing technical difficulties. Please try again in a few minutes." });
 //       }
 
@@ -41,7 +42,7 @@ const authenticate = require("../middlewares/ldapAuth");
 //     console.log("My staff today",userDN.mail)
 //     // Check if the staff is found
 //     if (!staff) {
-//       console.error(`Staff not found for Username: ${Username}`);
+//       logError(`Staff not found for Username: ${Username}`);
 //       return res.status(401).json({ message: "Invalid credentials" });
 //     }
 //       console.log(
@@ -55,7 +56,7 @@ const authenticate = require("../middlewares/ldapAuth");
 //       const refreshToken = createRefreshToken(staff.EmployeeCode, staff.RoleID);
 
 //       if (!token || !refreshToken) {
-//         console.error("Token generation failed");
+//         logError("Token generation failed");
 //         return res.status(500).json({ message: "Failed to generate tokens" });
 //       }
 
@@ -72,7 +73,7 @@ const authenticate = require("../middlewares/ldapAuth");
 //         });
 //     });
 //   } catch (error) {
-//     console.error("Login error:", error);
+//     logError("Login error:", error);
 //     return res.status(500).json({
 //       message: "Failed to login",
 //       error: process.env.NODE_ENV === "production" ? undefined : error.message,
@@ -91,13 +92,12 @@ const authenticateWithRetry = async (username, password, retries = 3, delay = 15
         });
       });
     } catch (error) {
-      // If we hit a "closed" or "timeout" error, or even a 401, we try again
       if (i < retries - 1) {
         console.warn(`Attempt ${i + 1} failed (${error.message}). Retrying in ${delay}ms...`);
         await new Promise(res => setTimeout(res, delay));
-        continue; 
+        continue;
       }
-      // If all 3 attempts fail, throw the final error
+      logError("LDAP authentication failed after retries", error);
       throw error;
     }
   }
@@ -158,7 +158,7 @@ exports.login = async (req, res) => {
       });
 
   } catch (error) {
-    console.error("Login error:", error);
+    logError("Login error:", error);
     
     // Check if headers were already sent to prevent the ERR_HTTP_HEADERS_SENT crash
     if (!res.headersSent) {
@@ -173,7 +173,7 @@ exports.logout = (req, res) => {
     // Clear tokens on the client-side
     return res.status(200).json({ message: "User logged out successfully" });
   } catch (error) {
-    logger.error(error);
+    logError(error);
     return res.status(500).json({
       message: "Failed to log out",
       error: process.env.NODE_ENV === "production" ? undefined : error.message,
@@ -213,8 +213,7 @@ exports.refresh = (req, res) => {
         refreshToken: newRefreshToken,
       });
   } catch (error) {
-    console.error('Refresh token error:', error.message);
-    logger.error(error);
+    logError(error);
     return res.status(403).json({
       message: "Failed to refresh token",
       error: process.env.NODE_ENV === "production" ? undefined : error.message,

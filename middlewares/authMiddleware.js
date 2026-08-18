@@ -1,3 +1,4 @@
+const { logError } = require('../middlewares/errorLogger');
 const jwt = require("jsonwebtoken");
 require("dotenv").config();
 const { createToken } = require("./jwtGenerationMiddleware");
@@ -18,6 +19,7 @@ module.exports.tokenAuthMiddleware = (req, res, next) => {
     req.user = decoded;
     next();
   } catch (err) {
+    logError(err);
     if (err instanceof jwt.TokenExpiredError) {
       console.log("Token expired, refreshing required.");
       return res.status(401).json({
@@ -55,6 +57,7 @@ module.exports.checkAdmin = (req, res, next) => {
 
     next();
   } catch (err) {
+    logError(err);
     return res.status(401).json({
       status: "FAILURE",
       message: "Invalid token.",
@@ -82,6 +85,7 @@ module.exports.checkAdminUser = (req, res, next) => {
 
     next();
   } catch (err) {
+    logError(err);
     return res.status(401).json({
       status: "FAILURE",
       message: "Invalid token.",
@@ -107,6 +111,7 @@ module.exports.checkAllUsers = (req, res, next) => {
 
     next();
   } catch (err) {
+    logError(err);
     return res.status(401).json({
       status: "FAILURE",
       message: "Invalid token.",
@@ -132,6 +137,7 @@ module.exports.checkTempUsers = (req, res, next) => {
 
     next();
   } catch (err) {
+    logError(err);
     return res.status(401).json({
       status: "FAILURE",
       message: "Invalid token.",
@@ -157,6 +163,7 @@ module.exports.checkEditor = (req, res, next) => {
 
     next();
   } catch (err) {
+    logError(err);
     return res.status(401).json({
       status: "FAILURE",
       message: "Invalid token.",
@@ -182,6 +189,7 @@ module.exports.checkUser = (req, res, next) => {
 
     next();
   } catch (err) {
+    logError(err);
     return res.status(401).json({
       status: "FAILURE",
       message: "Invalid token.",
@@ -207,6 +215,7 @@ module.exports.checkFixedAssetTeam = (req, res, next) => {
 
     next();
   } catch (err) {
+    logError(err);
     return res.status(401).json({
       status: "FAILURE",
       message: "Invalid token.",
@@ -232,6 +241,7 @@ module.exports.checkBillingTeam = (req, res, next) => {
 
     next();
   } catch (err) {
+    logError(err);
     return res.status(401).json({
       status: "FAILURE",
       message: "Invalid token.",
@@ -257,6 +267,7 @@ module.exports.checkKeyAccountsSupervisor = (req, res, next) => {
 
     next();
   } catch (err) {
+    logError(err);
     return res.status(401).json({
       status: "FAILURE",
       message: "Invalid token.",
@@ -282,6 +293,7 @@ module.exports.checkERTeam = (req, res, next) => {
 
     next();
   } catch (err) {
+    logError(err);
     return res.status(401).json({
       status: "FAILURE",
       message: "Invalid token.",
@@ -308,6 +320,7 @@ module.exports.checkFinance = (req, res, next) => {
 
     next();
   } catch (err) {
+    logError(err);
     return res.status(401).json({
       status: "FAILURE",
       message: "Invalid token.",
@@ -333,6 +346,7 @@ module.exports.checkRetail = (req, res, next) => {
 
     next();
   } catch (err) {
+    logError(err);
     return res.status(401).json({
       status: "FAILURE",
       message: "Invalid token.",
@@ -359,6 +373,7 @@ module.exports.checkWarehouse = (req, res, next) => {
 
     next();
   } catch (err) {
+    logError(err);
     return res.status(401).json({
       status: "FAILURE",
       message: "Invalid token.",

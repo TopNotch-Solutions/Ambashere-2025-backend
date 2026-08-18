@@ -1,7 +1,22 @@
 const express = require("express");
+const { patchExpressAsyncHandlers } = require("./middlewares/asyncHandler");
+patchExpressAsyncHandlers(express);
+
 const bodyParser = require("body-parser");
 require("dotenv").config();
+const logger = require("./middlewares/errorLogger");
+const { logError } = logger;
 const sequelize = require("./config/database");
+
+process.on("uncaughtException", (error) => {
+  logError("Uncaught exception", error);
+});
+
+process.on("unhandledRejection", (reason) => {
+  const error = reason instanceof Error ? reason : new Error(String(reason));
+  logError("Unhandled promise rejection", error);
+});
+
 const cors = require("cors");
 const cookieParser = require("cookie-parser");
 const http = require("http"); // Import http module
@@ -9,8 +24,8 @@ const multer = require("multer"); // Import multer
 const socketIo = require("socket.io");
 const cron = require("node-cron");
 const morgan = require("morgan");
-const logger = require("./middlewares/errorLogger");
 const errorHandler = require("./middlewares/errorHandlerMiddleware");
+const { handleFileUploadError } = require("./middlewares/fileUploadErrorHandler");
 const securityHeaders = require("./middlewares/securityHeaders");
 const path = require("path");
 const fetch = require("node-fetch");
@@ -183,7 +198,7 @@ cron.schedule("0 1 14 * *", async () => {
 
     console.log("Airtime allocated successfully.");
   } catch (error) {
-    console.error("Error allocating airtime:", error);
+    logError("Error allocating airtime:", error);
   }
 });
 
@@ -195,7 +210,7 @@ cron.schedule(RENEWAL_NOTIFICATION_CRON, async () => {
   try {
     await processHandsetWeekRenewals();
   } catch (error) {
-    logger.error("Handset 7-day renewal cron failed:", error);
+    logError("Handset 7-day renewal cron failed:", error);
   }
 });
 
@@ -203,7 +218,7 @@ cron.schedule(RENEWAL_NOTIFICATION_CRON, async () => {
   try {
     await processHandsetRenewalsDueToday();
   } catch (error) {
-    logger.error("Handset same-day renewal cron failed:", error);
+    logError("Handset same-day renewal cron failed:", error);
   }
 });
 
@@ -211,7 +226,7 @@ cron.schedule(RENEWAL_NOTIFICATION_CRON, async () => {
   try {
     await processContractWeekRenewals();
   } catch (error) {
-    logger.error("Contract 7-day renewal cron failed:", error);
+    logError("Contract 7-day renewal cron failed:", error);
   }
 });
 
@@ -219,7 +234,7 @@ cron.schedule(RENEWAL_NOTIFICATION_CRON, async () => {
   try {
     await processContractsExpiringToday();
   } catch (error) {
-    logger.error("Contract same-day expiry cron failed:", error);
+    logError("Contract same-day expiry cron failed:", error);
   }
 });
 
@@ -231,7 +246,7 @@ cron.schedule(NOTIFICATION_EMAIL_CRON, async () => {
   try {
     await processNotificationEmails();
   } catch (error) {
-    logger.error("Notification email cron failed:", error);
+    logError("Notification email cron failed:", error);
   }
 });
 
@@ -243,11 +258,11 @@ cron.schedule(EVENT_NOTIFICATION_CRON, async () => {
     await processDueEventNotifications();
     await processCalendarNotificationEmails();
   } catch (error) {
-    logger.error("Calendar event notification cron failed:", error);
+    logError("Calendar event notification cron failed:", error);
   }
 });
 
-cron.schedule('0 14,16 * * *', withSyncLock("device-costs", async () => {
+cron.schedule('0 15,20 * * *', withSyncLock("device-costs", async () => {
   const transaction = await sequelize.transaction();
 
   try {
@@ -295,12 +310,11 @@ cron.schedule('0 14,16 * * *', withSyncLock("device-costs", async () => {
 
   } catch (error) {
     await transaction.rollback();
-
-    console.error("Transaction rolled back:", error.message);
+    logError("Device cost sync failed:", error);
   }
 }));
 
-cron.schedule('0 14,16 * * *', withSyncLock("employee-contracts", async () => {
+cron.schedule('0 15,20 * * *', withSyncLock("employee-contracts", async () => {
   const transaction = await sequelize.transaction();
 
   try {
@@ -385,11 +399,11 @@ cron.schedule('0 14,16 * * *', withSyncLock("employee-contracts", async () => {
 
   } catch (error) {
     await transaction.rollback();
-    console.error("Transaction rolled back:", error.message);
+    logError("Employee contract sync failed:", error);
   }
 }));
 
-cron.schedule('0 14,16 * * *', withSyncLock("employee-details", async () => {
+cron.schedule('0 15,20 * * *', withSyncLock("employee-details", async () => {
   const transaction = await sequelize.transaction();
 
   try {
@@ -457,11 +471,11 @@ cron.schedule('0 14,16 * * *', withSyncLock("employee-details", async () => {
 
   } catch (error) {
     await transaction.rollback();
-    console.error("Transaction rolled back:", error.message);
+    logError("Employee details sync failed:", error);
   }
 }));
 
-cron.schedule('0 14,16 * * *', withSyncLock("employee-handsets", async () => {
+cron.schedule('0 15,20 * * *', withSyncLock("employee-handsets", async () => {
   const transaction = await sequelize.transaction();
 
   try {
@@ -521,11 +535,12 @@ cron.schedule('0 14,16 * * *', withSyncLock("employee-handsets", async () => {
 
   } catch (error) {
     await transaction.rollback();
-    console.error("Transaction rolled back:", error.message);
+    logError("Employee handset sync failed:", error);
   }
 }));
 
 
+app.use(handleFileUploadError);
 app.use(errorHandler);
 
 sequelize.options.logging = console.log;
@@ -543,7 +558,7 @@ sequelize
     });
   })
   .catch((error) => {
-    logger.error("Error synchronizing database:", error);
+    logError("Error synchronizing database:", error);
   });
 
 // Socket.IO event handling
@@ -555,7 +570,7 @@ io.on("connection", (socket) => {
   });
 
   socket.on("error", (error) => {
-    logger.error("Socket error:", error);
+    logError("Socket error:", error);
   });
 });
 

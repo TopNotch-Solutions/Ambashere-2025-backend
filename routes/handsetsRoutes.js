@@ -42,6 +42,11 @@ router.put(
   checkAdmin,
   handsetSubmissionsController.updateHandsetSubmissionStatus
 );
+router.put(
+  "/submissions/:id/cancel",
+  checkAdminUser,
+  handsetSubmissionsController.cancelHandsetSubmission
+);
 
 // Finance verification endpoints
 router.post("/verify-probation/:id", checkFinance, handsetsController.verifyProbation);
