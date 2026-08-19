@@ -7,6 +7,7 @@ const addTopUpAmountToAirtimeSubmissions = require("./migrations/add_top_up_amou
 const removeUserNameFromEmployees = require("./migrations/remove_username_from_employees");
 const createHandsetContractSubmissions = require("./migrations/create_handset_contract_submissions");
 const addAssignedAdminToContractSubmissions = require("./migrations/add_assigned_admin_to_contract_submissions");
+const addIsReceivedToContractSubmissions = require("./migrations/add_is_received_to_contract_submissions");
 const sequelize = require("./config/database");
 
 const runMigration = async () => {
@@ -22,6 +23,7 @@ const runMigration = async () => {
     await createAirtimeContractSubmissions.up();
     await createHandsetContractSubmissions.up();
     await addAssignedAdminToContractSubmissions.up();
+    await addIsReceivedToContractSubmissions.up();
     await addTransactionTypeToAirtimeSubmissions();
     await addTopUpAmountToAirtimeSubmissions();
     await removeUserNameFromEmployees();

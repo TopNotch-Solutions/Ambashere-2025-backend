@@ -11,6 +11,7 @@ const Notifications = require("../models/Notifications");
 const { sendEmail } = require("../middlewares/email");
 const { sendFinanceTeamEmail } = require("../middlewares/financeEmail");
 const { sendAdminEmail } = require("../middlewares/adminEmail");
+const { openSubmissionWhere } = require("../utils/openSubmissions");
 
 function normalizeEmployeeCode(employeeCode) {
   return String(employeeCode || "")
@@ -72,6 +73,7 @@ function mapSubmissionToStaffHandset(submission) {
     excess_price: excess,
     Status: status,
     status: status,
+    isReceived: Boolean(submission.isReceived),
     RequestDate: submission.contract_submitted_date,
     createdAt: submission.contract_submitted_date,
     CollectionDate: null,
@@ -87,7 +89,7 @@ function mapSubmissionToStaffHandset(submission) {
 
 async function getOpenHandsetSubmissions(employeeCode = null) {
   const where = {
-    subscription_status: { [Op.in]: ["pending", "in progress"] },
+    ...openSubmissionWhere(),
   };
 
   if (employeeCode) {

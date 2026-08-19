@@ -24,6 +24,7 @@ async function notifySubmissionParties({
   adminMessage,
   userEmailSubject,
   adminEmailSubject,
+  ccAdminsOnUserEmail = false,
 }) {
   const io = getSocketIo();
 
@@ -98,12 +99,16 @@ async function notifySubmissionParties({
     if (employeeEmail) {
       await sendNotificationEmail({
         to: employeeEmail,
+        cc: ccAdminsOnUserEmail ? adminEmailsExcludingEmployee : undefined,
         subject: userEmailSubject,
         message: userMessage,
       });
     }
 
-    if (adminEmailsExcludingEmployee.length) {
+    if (
+      (!ccAdminsOnUserEmail || !employeeEmail) &&
+      adminEmailsExcludingEmployee.length
+    ) {
       await sendNotificationEmail({
         to: adminEmailsExcludingEmployee,
         subject: adminEmailSubject,

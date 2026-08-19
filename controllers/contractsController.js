@@ -16,8 +16,7 @@ const { excludedPackageSql, excludedPackageWhere } =
 const AirtimeContractSubmission = require("../models/AirtimeContractSubmission");
 const { findStaffByEmployeeCode } = require("../utils/employeeCode");
 const { notifySubmissionParties } = require("../middlewares/submissionNotify");
-
-const OPEN_SUBMISSION_STATUSES = ["pending", "in progress"];
+const { openSubmissionWhere } = require("../utils/openSubmissions");
 
 function formatMoneyNa(value) {
   const amount = Number(value) || 0;
@@ -103,22 +102,35 @@ async function notifyAirtimeContractCancellation({
   employeeCode,
   employee,
   submission,
+  cancelledByAdmin,
+  previousStatus,
 }) {
   const employeeName = employee?.FullName || employeeCode;
   const details = buildSubmissionDetailsMessage([submission]);
 
-  const userMessage =
-    `Your airtime benefit request has been cancelled.\n\n` +
-    `Employee: ${employeeName} (${employeeCode})\n\n` +
-    `${details}\n\n` +
-    `You may submit a new airtime benefit request when you are eligible.`;
+  const cancelledByAdminName = cancelledByAdmin?.FullName || cancelledByAdmin?.EmployeeCode;
+  const userMessage = cancelledByAdminName
+    ? `Your airtime benefit request has been cancelled by an administrator (${cancelledByAdminName}).\n\n` +
+      `Employee: ${employeeName} (${employeeCode})\n\n` +
+      `${details}\n\n` +
+      `You may submit a new airtime benefit request when you are eligible.`
+    : `Your airtime benefit request has been cancelled.\n\n` +
+      `Employee: ${employeeName} (${employeeCode})\n\n` +
+      `${details}\n\n` +
+      `You may submit a new airtime benefit request when you are eligible.`;
 
-  const adminMessage =
-    `An airtime benefit request has been cancelled by the employee.\n\n` +
-    `Employee: ${employeeName} (${employeeCode})\n` +
-    `Email: ${employee?.Email || "-"}\n` +
-    `Request Date: ${new Date(submission.contract_submitted_date).toLocaleDateString()}\n\n` +
-    `${details}`;
+  const adminMessage = cancelledByAdminName
+    ? `An airtime benefit request has been cancelled by administrator ${cancelledByAdminName}.\n\n` +
+      `Employee: ${employeeName} (${employeeCode})\n` +
+      `Email: ${employee?.Email || "-"}\n` +
+      `Previous status: ${previousStatus || submission.subscription_status || "-"}\n` +
+      `Request Date: ${new Date(submission.contract_submitted_date).toLocaleDateString()}\n\n` +
+      `${details}`
+    : `An airtime benefit request has been cancelled by the employee.\n\n` +
+      `Employee: ${employeeName} (${employeeCode})\n` +
+      `Email: ${employee?.Email || "-"}\n` +
+      `Request Date: ${new Date(submission.contract_submitted_date).toLocaleDateString()}\n\n` +
+      `${details}`;
 
   await notifySubmissionParties({
     employeeCode,
@@ -129,6 +141,7 @@ async function notifyAirtimeContractCancellation({
     adminMessage,
     userEmailSubject: "Airtime Benefit Request Cancelled",
     adminEmailSubject: `Airtime Contract Cancelled - ${employeeName} (${employeeCode})`,
+    ccAdminsOnUserEmail: Boolean(cancelledByAdminName),
   });
 }
 
@@ -198,7 +211,7 @@ async function getOpenAirtimeSubmissions(employeeCode) {
     where: {
       [Op.and]: [
         normalizedEmployeeCodeWhere("employeeCode", employeeCode),
-        { subscription_status: { [Op.in]: OPEN_SUBMISSION_STATUSES } },
+        openSubmissionWhere(),
       ],
     },
     order: [["contract_submitted_date", "DESC"]],
@@ -250,6 +263,7 @@ function mapSubmissionToBenefitContract(submission) {
     TransactionType: submission.transaction_type || null,
     subscription_status: submission.subscription_status,
     SubscriptionStatus: submission.subscription_status,
+    isReceived: Boolean(submission.isReceived),
     isSubmission: true,
   };
 }
@@ -530,14 +544,21 @@ exports.getStaffContractById = async (req, res) => {
     const available =
       (70 / 100) * airtimeAllocation - activeCdrMonthly - openSubmissionMonthly;
 
+    const visibleCdrContracts = contracts.filter((item) => {
+      const status = String(item.subscription_status || "")
+        .trim()
+        .toLowerCase();
+      return status !== "cancelled" && status !== "canceled";
+    });
+
     console.log("Here are my available:", available, airtimeAllocation, sul, contracts);
 
-    // Benefits/Dashboard: Active CDR Live + pending / in progress submissions only
+    // Benefits/Dashboard: CDR Live contracts + open submissions (until received)
     res.status(200).json({
       airtimeAllocation,
       available,
       sul,
-      contracts: [...activeCdrContracts, ...openSubmissionContracts],
+      contracts: [...visibleCdrContracts, ...openSubmissionContracts],
     });
   } catch (error) {
     logError(error);
@@ -1587,6 +1608,61 @@ exports.updateAirtimeSubmissionStatus = async (req, res) => {
   }
 };
 
+exports.markAirtimeSubmissionReceived = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const employeeCode = normalizeEmployeeCode(req.user?.EmployeeCode);
+
+    if (!id) {
+      return res.status(400).json({ message: "Submission id is required." });
+    }
+
+    if (!employeeCode) {
+      return res.status(400).json({ message: "Employee code is required." });
+    }
+
+    const submission = await AirtimeContractSubmission.findByPk(id);
+    if (!submission) {
+      return res.status(404).json({ message: "Submission not found." });
+    }
+
+    if (normalizeEmployeeCode(submission.employeeCode) !== employeeCode) {
+      return res.status(403).json({
+        message: "You can only mark your own airtime contract as received.",
+      });
+    }
+
+    if (submission.subscription_status === "cancelled") {
+      return res.status(400).json({
+        message: "Cancelled submissions cannot be marked as received.",
+      });
+    }
+
+    if (submission.subscription_status !== "completed") {
+      return res.status(400).json({
+        message: "Only completed submissions can be marked as received.",
+      });
+    }
+
+    if (submission.isReceived) {
+      return res.status(400).json({
+        message: "This submission has already been marked as received.",
+      });
+    }
+
+    submission.isReceived = true;
+    await submission.save();
+
+    res.status(200).json({
+      message: "Submission marked as received.",
+      submission,
+    });
+  } catch (error) {
+    logError("Error marking airtime submission as received:", error);
+    res.status(500).json({ message: "Failed to mark submission as received." });
+  }
+};
+
 exports.cancelAirtimeSubmission = async (req, res) => {
   try {
     const { id } = req.params;
@@ -1651,6 +1727,83 @@ exports.cancelAirtimeSubmission = async (req, res) => {
     });
   } catch (error) {
     logError("Error cancelling airtime submission:", error);
+    res.status(500).json({ message: "Failed to cancel airtime benefit request." });
+  }
+};
+
+exports.adminCancelAirtimeSubmission = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const actingAdminCode = normalizeEmployeeCode(req.user?.EmployeeCode);
+
+    if (!id) {
+      return res.status(400).json({ message: "Submission id is required." });
+    }
+
+    if (!actingAdminCode) {
+      return res.status(401).json({ message: "Admin employee code is required." });
+    }
+
+    const submission = await AirtimeContractSubmission.findByPk(id);
+    if (!submission) {
+      return res.status(404).json({ message: "Submission not found." });
+    }
+
+    const currentStatus = String(submission.subscription_status || "")
+      .trim()
+      .toLowerCase();
+
+    if (currentStatus === "cancelled") {
+      return res.status(400).json({
+        message: "This submission is already cancelled.",
+      });
+    }
+
+    if (currentStatus !== "in progress" && currentStatus !== "completed") {
+      return res.status(400).json({
+        message: "Admins can only cancel submissions that are in progress or completed.",
+      });
+    }
+
+    const [employee, cancelledByAdmin] = await Promise.all([
+      findStaffByEmployeeCode(submission.employeeCode),
+      findStaffByEmployeeCode(actingAdminCode),
+    ]);
+
+    submission.subscription_status = "cancelled";
+    submission.cancelledAt = new Date();
+    await submission.save();
+
+    try {
+      await deleteMatchingPendingContract(submission);
+    } catch (cleanupError) {
+      logError(
+        "Airtime request cancelled but pending contract cleanup failed:",
+        cleanupError
+      );
+    }
+
+    setImmediate(async () => {
+      try {
+        await notifyAirtimeContractCancellation({
+          employeeCode: submission.employeeCode,
+          employee,
+          submission,
+          cancelledByAdmin,
+          previousStatus: currentStatus,
+        });
+      } catch (notifyError) {
+        logError("Airtime request cancelled but notification failed:", notifyError);
+      }
+    });
+
+    res.status(200).json({
+      success: true,
+      message: "Airtime benefit request cancelled successfully.",
+      submission,
+    });
+  } catch (error) {
+    logError("Error cancelling airtime submission as admin:", error);
     res.status(500).json({ message: "Failed to cancel airtime benefit request." });
   }
 };

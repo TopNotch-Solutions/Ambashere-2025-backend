@@ -34,9 +34,19 @@ router.put(
   contractsController.updateAirtimeSubmissionStatus
 );
 router.put(
+  "/submissions/:id/received",
+  checkAdminUser,
+  contractsController.markAirtimeSubmissionReceived
+);
+router.put(
   "/submissions/:id/cancel",
   checkAdminUser,
   contractsController.cancelAirtimeSubmission
+);
+router.put(
+  "/submissions/:id/admin-cancel",
+  checkAdmin,
+  contractsController.adminCancelAirtimeSubmission
 );
 
 router.get("/:employeeCode", checkAllUsers, contractsController.getStaffContractById);

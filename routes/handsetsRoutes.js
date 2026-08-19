@@ -43,9 +43,19 @@ router.put(
   handsetSubmissionsController.updateHandsetSubmissionStatus
 );
 router.put(
+  "/submissions/:id/received",
+  checkAdminUser,
+  handsetSubmissionsController.markHandsetSubmissionReceived
+);
+router.put(
   "/submissions/:id/cancel",
   checkAdminUser,
   handsetSubmissionsController.cancelHandsetSubmission
+);
+router.put(
+  "/submissions/:id/admin-cancel",
+  checkAdmin,
+  handsetSubmissionsController.adminCancelHandsetSubmission
 );
 
 // Finance verification endpoints

@@ -45,6 +45,11 @@ const HandsetContractSubmission = sequelize.define(
       type: DataTypes.STRING(50),
       allowNull: true,
     },
+    isReceived: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false,
+    },
     cancelledAt: {
       type: DataTypes.DATE,
       allowNull: true,

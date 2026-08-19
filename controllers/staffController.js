@@ -21,6 +21,7 @@ const CdrLiveEmployeeDetail = require("../models/crdliveEmployeeDetail");
 const NewEmployeeList = require("../models/NewEmployeeList");
 const AirtimeContractSubmission = require("../models/AirtimeContractSubmission");
 const { excludedPackageSql } = require("../models/crdliveEmployeeContractDetail");
+const { openSubmissionWhere } = require("../utils/openSubmissions");
 
 // Create Employee
 exports.createStaff = async (req, res) => {
@@ -561,7 +562,7 @@ exports.getStaffWithAirtimeAllocation = async (req, res) => {
         });
 
         // Match dashboard available formula:
-        // 70% allocation - Active CDR Live monthly - pending/in-progress submissions
+        // 70% allocation - Active CDR Live monthly - open submissions until received
         const [activeCdrRows] = await sequelize.query(
           `SELECT
             COALESCE(c.device_monthly_price, 0) AS device_monthly_price,
@@ -591,7 +592,7 @@ exports.getStaffWithAirtimeAllocation = async (req, res) => {
           where: {
             [Op.and]: [
               normalizedEmployeeCodeWhere("employeeCode", employeeCode),
-              { subscription_status: { [Op.in]: ["pending", "in progress"] } },
+              openSubmissionWhere(),
             ],
           },
         });

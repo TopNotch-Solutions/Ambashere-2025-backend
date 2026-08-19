@@ -81,6 +81,11 @@ const AirtimeContractSubmission = sequelize.define(
       type: DataTypes.STRING(50),
       allowNull: true,
     },
+    isReceived: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false,
+    },
   },
   {
     tableName: "airtime_contract_submissions",

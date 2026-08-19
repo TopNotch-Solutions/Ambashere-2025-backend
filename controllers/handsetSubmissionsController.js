@@ -10,8 +10,8 @@ const {
   findStaffByEmployeeCode,
 } = require("../utils/employeeCode");
 const { notifySubmissionParties } = require("../middlewares/submissionNotify");
+const { openSubmissionWhere } = require("../utils/openSubmissions");
 
-const OPEN_SUBMISSION_STATUSES = ["pending", "in progress"];
 const STATUS_TRANSITIONS = {
   pending: "in progress",
   "in progress": "completed",
@@ -56,7 +56,7 @@ async function getEligibility(employeeCode) {
   const openSubmissions = await HandsetContractSubmission.findAll({
     where: {
       employeeCode: storedCode,
-      subscription_status: { [Op.in]: OPEN_SUBMISSION_STATUSES },
+      ...openSubmissionWhere(),
     },
     order: [["contract_submitted_date", "DESC"]],
   });
@@ -65,7 +65,7 @@ async function getEligibility(employeeCode) {
     return {
       canApply: false,
       reason:
-        "You already have a staff handset request that is pending or in progress. You cannot submit another until it is completed.",
+        "You already have a staff handset request that has not been received yet. You cannot submit another until it is marked as received.",
     };
   }
 
@@ -170,25 +170,42 @@ async function notifyHandsetContractSubmission({ employeeCode, employee, submiss
   });
 }
 
-async function notifyHandsetContractCancellation({ employeeCode, employee, submission }) {
+async function notifyHandsetContractCancellation({
+  employeeCode,
+  employee,
+  submission,
+  cancelledByAdmin,
+  previousStatus,
+}) {
   const employeeName = employee?.FullName || submission.employee_name || employeeCode;
   const details =
     `Device: ${submission.device}\n` +
     `Device Price: ${formatMoneyNa(submission.device_price)}\n` +
     `Excess Payment: ${formatMoneyNa(submission.excess_payment)}`;
+  const cancelledByAdminName = cancelledByAdmin?.FullName || cancelledByAdmin?.EmployeeCode;
 
-  const userMessage =
-    `Your staff handset request has been cancelled.\n\n` +
-    `Employee: ${employeeName} (${employeeCode})\n` +
-    `${details}\n\n` +
-    `You may submit a new staff handset request when you are eligible.`;
+  const userMessage = cancelledByAdminName
+    ? `Your staff handset request has been cancelled by an administrator (${cancelledByAdminName}).\n\n` +
+      `Employee: ${employeeName} (${employeeCode})\n` +
+      `${details}\n\n` +
+      `You may submit a new staff handset request when you are eligible.`
+    : `Your staff handset request has been cancelled.\n\n` +
+      `Employee: ${employeeName} (${employeeCode})\n` +
+      `${details}\n\n` +
+      `You may submit a new staff handset request when you are eligible.`;
 
-  const adminMessage =
-    `A staff handset request has been cancelled by the employee.\n\n` +
-    `Employee: ${employeeName} (${employeeCode})\n` +
-    `Email: ${employee?.Email || "-"}\n` +
-    `Request Date: ${new Date(submission.contract_submitted_date).toLocaleDateString()}\n\n` +
-    `${details}`;
+  const adminMessage = cancelledByAdminName
+    ? `A staff handset request has been cancelled by administrator ${cancelledByAdminName}.\n\n` +
+      `Employee: ${employeeName} (${employeeCode})\n` +
+      `Email: ${employee?.Email || "-"}\n` +
+      `Previous status: ${previousStatus || submission.subscription_status || "-"}\n` +
+      `Request Date: ${new Date(submission.contract_submitted_date).toLocaleDateString()}\n\n` +
+      `${details}`
+    : `A staff handset request has been cancelled by the employee.\n\n` +
+      `Employee: ${employeeName} (${employeeCode})\n` +
+      `Email: ${employee?.Email || "-"}\n` +
+      `Request Date: ${new Date(submission.contract_submitted_date).toLocaleDateString()}\n\n` +
+      `${details}`;
 
   await notifySubmissionParties({
     employeeCode,
@@ -199,6 +216,7 @@ async function notifyHandsetContractCancellation({ employeeCode, employee, submi
     adminMessage,
     userEmailSubject: "Staff Handset Request Cancelled",
     adminEmailSubject: `Handset Contract Cancelled - ${employeeName} (${employeeCode})`,
+    ccAdminsOnUserEmail: Boolean(cancelledByAdminName),
   });
 }
 
@@ -406,6 +424,61 @@ exports.updateHandsetSubmissionStatus = async (req, res) => {
   }
 };
 
+exports.markHandsetSubmissionReceived = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const employeeCode = normalizeEmployeeCode(req.user?.EmployeeCode);
+
+    if (!id) {
+      return res.status(400).json({ message: "Submission id is required." });
+    }
+
+    if (!employeeCode) {
+      return res.status(400).json({ message: "Employee code is required." });
+    }
+
+    const submission = await HandsetContractSubmission.findByPk(id);
+    if (!submission) {
+      return res.status(404).json({ message: "Submission not found." });
+    }
+
+    if (normalizeEmployeeCode(submission.employeeCode) !== employeeCode) {
+      return res.status(403).json({
+        message: "You can only mark your own handset contract as received.",
+      });
+    }
+
+    if (submission.subscription_status === "cancelled") {
+      return res.status(400).json({
+        message: "Cancelled submissions cannot be marked as received.",
+      });
+    }
+
+    if (submission.subscription_status !== "completed") {
+      return res.status(400).json({
+        message: "Only completed submissions can be marked as received.",
+      });
+    }
+
+    if (submission.isReceived) {
+      return res.status(400).json({
+        message: "This submission has already been marked as received.",
+      });
+    }
+
+    submission.isReceived = true;
+    await submission.save();
+
+    res.status(200).json({
+      message: "Submission marked as received.",
+      submission,
+    });
+  } catch (error) {
+    logError("Error marking handset submission as received:", error);
+    res.status(500).json({ message: "Failed to mark submission as received." });
+  }
+};
+
 exports.cancelHandsetSubmission = async (req, res) => {
   try {
     const { id } = req.params;
@@ -461,6 +534,74 @@ exports.cancelHandsetSubmission = async (req, res) => {
     });
   } catch (error) {
     logError("Error cancelling handset submission:", error);
+    res.status(500).json({ message: "Failed to cancel handset request." });
+  }
+};
+
+exports.adminCancelHandsetSubmission = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const actingAdminCode = normalizeEmployeeCode(req.user?.EmployeeCode);
+
+    if (!id) {
+      return res.status(400).json({ message: "Submission id is required." });
+    }
+
+    if (!actingAdminCode) {
+      return res.status(401).json({ message: "Admin employee code is required." });
+    }
+
+    const submission = await HandsetContractSubmission.findByPk(id);
+    if (!submission) {
+      return res.status(404).json({ message: "Submission not found." });
+    }
+
+    const currentStatus = String(submission.subscription_status || "")
+      .trim()
+      .toLowerCase();
+
+    if (currentStatus === "cancelled") {
+      return res.status(400).json({
+        message: "This submission is already cancelled.",
+      });
+    }
+
+    if (currentStatus !== "in progress" && currentStatus !== "completed") {
+      return res.status(400).json({
+        message: "Admins can only cancel submissions that are in progress or completed.",
+      });
+    }
+
+    const [employee, cancelledByAdmin] = await Promise.all([
+      findStaffByEmployeeCode(submission.employeeCode),
+      findStaffByEmployeeCode(actingAdminCode),
+    ]);
+
+    submission.subscription_status = "cancelled";
+    submission.cancelledAt = new Date();
+    await submission.save();
+
+    setImmediate(async () => {
+      try {
+        await notifyHandsetContractCancellation({
+          employeeCode: submission.employeeCode,
+          employee,
+          submission,
+          cancelledByAdmin,
+          previousStatus: currentStatus,
+        });
+      } catch (notifyError) {
+        logError("Handset request cancelled but notification failed:", notifyError);
+      }
+    });
+
+    res.status(200).json({
+      success: true,
+      message: "Handset request cancelled successfully.",
+      submission,
+    });
+  } catch (error) {
+    logError("Error cancelling handset submission as admin:", error);
     res.status(500).json({ message: "Failed to cancel handset request." });
   }
 };
