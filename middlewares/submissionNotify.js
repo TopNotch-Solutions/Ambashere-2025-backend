@@ -3,6 +3,7 @@ const Staff = require("../models/Staff");
 const Notifications = require("../models/Notifications");
 const { getSocketIo } = require("../config/socket");
 const { sendNotificationEmail } = require("./notificationEmail");
+const { findStaffByEmployeeCode } = require("../utils/employeeCode");
 const {
   NOTIFICATION_EMAIL_TEST_ONLY,
   NOTIFICATION_EMAIL_RECIPIENT,
@@ -27,19 +28,30 @@ async function notifySubmissionParties({
   ccAdminsOnUserEmail = false,
 }) {
   const io = getSocketIo();
+  const staff =
+    employee?.EmployeeCode
+      ? employee
+      : await findStaffByEmployeeCode(employeeCode);
+  const canonicalEmployeeCode = staff?.EmployeeCode;
 
-  const userNotification = await Notifications.create({
-    EmployeeCode: employeeCode,
-    Type: userType,
-    Message: userMessage,
-    Viewed: false,
-    Created_At: new Date(),
-    RecipientEmployeeCode: employeeCode,
-    EmailSent: true,
-  });
+  if (!canonicalEmployeeCode) {
+    logError(
+      `Skipping in-app notifications; no matching employees row for ${employeeCode}`
+    );
+  } else {
+    const userNotification = await Notifications.create({
+      EmployeeCode: canonicalEmployeeCode,
+      Type: userType,
+      Message: userMessage,
+      Viewed: false,
+      Created_At: new Date(),
+      RecipientEmployeeCode: canonicalEmployeeCode,
+      EmailSent: true,
+    });
 
-  if (io) {
-    io.emit("notification", userNotification);
+    if (io) {
+      io.emit("notification", userNotification);
+    }
   }
 
   const adminUsers = await Staff.findAll({
@@ -47,7 +59,7 @@ async function notifySubmissionParties({
     attributes: ["EmployeeCode", "Email", "FullName"],
   });
 
-  const employeeNorm = normalizeCode(employeeCode);
+  const employeeNorm = normalizeCode(canonicalEmployeeCode || employeeCode);
   const uniqueAdminEmails = [];
   const seenEmails = new Set();
 
@@ -56,18 +68,20 @@ async function notifySubmissionParties({
       continue;
     }
 
-    const adminNotification = await Notifications.create({
-      EmployeeCode: employeeCode,
-      Type: adminType,
-      Message: adminMessage,
-      Viewed: false,
-      Created_At: new Date(),
-      RecipientEmployeeCode: admin.EmployeeCode,
-      EmailSent: true,
-    });
+    if (canonicalEmployeeCode) {
+      const adminNotification = await Notifications.create({
+        EmployeeCode: canonicalEmployeeCode,
+        Type: adminType,
+        Message: adminMessage,
+        Viewed: false,
+        Created_At: new Date(),
+        RecipientEmployeeCode: admin.EmployeeCode,
+        EmailSent: true,
+      });
 
-    if (io) {
-      io.emit("notification", adminNotification);
+      if (io) {
+        io.emit("notification", adminNotification);
+      }
     }
 
     const email = String(admin.Email || "").trim().toLowerCase();

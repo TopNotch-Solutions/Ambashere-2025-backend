@@ -137,13 +137,22 @@ function resolveEmailRecipient(intendedEmail, intendedLabel) {
 }
 
 async function notifyEmployee({ employeeCode, type, message }) {
+  const staff = await findStaffByEmployeeCode(employeeCode);
+  const canonicalEmployeeCode = staff?.EmployeeCode;
+  if (!canonicalEmployeeCode) {
+    logError(
+      `Skipping employee in-app notification; no matching employees row for ${employeeCode}`
+    );
+    return null;
+  }
+
   const notification = await Notifications.create({
-    EmployeeCode: employeeCode,
+    EmployeeCode: canonicalEmployeeCode,
     Type: type,
     Message: message,
     Viewed: false,
     Created_At: new Date(),
-    RecipientEmployeeCode: employeeCode,
+    RecipientEmployeeCode: canonicalEmployeeCode,
   });
 
   const io = getSocketIo();
@@ -155,6 +164,15 @@ async function notifyEmployee({ employeeCode, type, message }) {
 }
 
 async function notifyAdmins({ employeeCode, type, message }) {
+  const staff = await findStaffByEmployeeCode(employeeCode);
+  const canonicalEmployeeCode = staff?.EmployeeCode;
+  if (!canonicalEmployeeCode) {
+    logError(
+      `Skipping admin in-app notifications; no matching employees row for ${employeeCode}`
+    );
+    return;
+  }
+
   const admins = await Staff.findAll({
     where: { RoleID: 1 },
     attributes: ["EmployeeCode"],
@@ -162,7 +180,7 @@ async function notifyAdmins({ employeeCode, type, message }) {
 
   for (const admin of admins) {
     const notification = await Notifications.create({
-      EmployeeCode: employeeCode,
+      EmployeeCode: canonicalEmployeeCode,
       Type: type,
       Message: message,
       Viewed: false,
@@ -217,16 +235,20 @@ exports.createTicket = async (req, res) => {
       `Reason: ${subject}\n\n` +
       `Message:\n${message}`;
 
-    await notifySubmissionParties({
-      employeeCode,
-      employee,
-      userType: "Support Ticket Submitted",
-      userMessage: employeeMessage,
-      adminType: "New Support Ticket",
-      adminMessage,
-      userEmailSubject: `Support Ticket ${ticketNumber} Received`,
-      adminEmailSubject: `New Support Ticket ${ticketNumber} - ${employee.FullName} (${employeeCode})`,
-    });
+    try {
+      await notifySubmissionParties({
+        employeeCode,
+        employee,
+        userType: "Support Ticket Submitted",
+        userMessage: employeeMessage,
+        adminType: "New Support Ticket",
+        adminMessage,
+        userEmailSubject: `Support Ticket ${ticketNumber} Received`,
+        adminEmailSubject: `New Support Ticket ${ticketNumber} - ${employee.FullName} (${employeeCode})`,
+      });
+    } catch (notifyError) {
+      logError("Error sending support ticket notifications:", notifyError);
+    }
 
     res.status(201).json({
       success: true,
@@ -556,11 +578,15 @@ exports.updateTicketStatus = async (req, res) => {
     );
     const hasCustomMessage = Boolean(String(customMessage || "").trim());
 
-    await notifyEmployee({
-      employeeCode: ticket.employeeCode,
-      type: `Support Ticket ${statusLabel}`,
-      message: employeeMessage,
-    });
+    try {
+      await notifyEmployee({
+        employeeCode: employee?.EmployeeCode || ticket.employeeCode,
+        type: `Support Ticket ${statusLabel}`,
+        message: employeeMessage,
+      });
+    } catch (notifyError) {
+      logError("Error creating ticket status in-app notification:", notifyError);
+    }
 
     if (employee?.Email) {
       try {
@@ -642,16 +668,20 @@ exports.cancelTicket = async (req, res) => {
       `Reason: ${ticket.reason}\n\n` +
       `Original message:\n${ticket.message}`;
 
-    await notifySubmissionParties({
-      employeeCode: ticket.employeeCode,
-      employee,
-      userType: "Support Ticket Cancelled",
-      userMessage: employeeMessage,
-      adminType: "Support Ticket Cancelled",
-      adminMessage,
-      userEmailSubject: `Support Ticket ${ticket.ticketNumber} Cancelled`,
-      adminEmailSubject: `Support Ticket Cancelled — ${ticket.ticketNumber} (${employeeName})`,
-    });
+    try {
+      await notifySubmissionParties({
+        employeeCode: ticket.employeeCode,
+        employee,
+        userType: "Support Ticket Cancelled",
+        userMessage: employeeMessage,
+        adminType: "Support Ticket Cancelled",
+        adminMessage,
+        userEmailSubject: `Support Ticket ${ticket.ticketNumber} Cancelled`,
+        adminEmailSubject: `Support Ticket Cancelled — ${ticket.ticketNumber} (${employeeName})`,
+      });
+    } catch (notifyError) {
+      logError("Error sending support ticket cancellation notifications:", notifyError);
+    }
 
     res.status(200).json({
       success: true,
