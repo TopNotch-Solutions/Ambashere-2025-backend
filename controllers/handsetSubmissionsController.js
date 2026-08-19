@@ -62,8 +62,29 @@ async function getEligibility(employeeCode) {
   });
 
   if (openSubmissions.length > 0) {
+    const pendingSubmission = openSubmissions.find(
+      (item) =>
+        String(item.subscription_status || "").trim().toLowerCase() === "pending"
+    );
+
+    if (pendingSubmission) {
+      return {
+        canApply: false,
+        canEditPending: true,
+        pendingSubmission: {
+          id: pendingSubmission.id,
+          device: pendingSubmission.device,
+          device_price: Number(pendingSubmission.device_price) || 0,
+          excess_payment: Number(pendingSubmission.excess_payment) || 0,
+        },
+        reason:
+          "You have a pending staff handset request. You can still edit the device until an administrator starts processing it.",
+      };
+    }
+
     return {
       canApply: false,
+      canEditPending: false,
       reason:
         "You already have a staff handset request that has not been received yet. You cannot submit another until it is marked as received.",
     };
@@ -167,6 +188,41 @@ async function notifyHandsetContractSubmission({ employeeCode, employee, submiss
     adminMessage,
     userEmailSubject: "Staff Handset Request Submitted",
     adminEmailSubject: `New Handset Contract Submission - ${employeeName} (${employeeCode})`,
+  });
+}
+
+async function notifyHandsetContractUpdated({ employeeCode, employee, submission }) {
+  const employeeName = employee?.FullName || submission.employee_name || employeeCode;
+  const details =
+    `Device: ${submission.device}\n` +
+    `Device Price: ${formatMoneyNa(submission.device_price)}\n` +
+    `Excess Payment: ${formatMoneyNa(submission.excess_payment)}\n` +
+    `Status: ${submission.subscription_status || "pending"}`;
+
+  const userMessage =
+    `Your pending staff handset request has been updated.\n\n` +
+    `Employee: ${employeeName} (${employeeCode})\n` +
+    `${details}\n\n` +
+    `Your request is still pending and will be reviewed by an administrator.`;
+
+  const adminMessage =
+    `A pending staff handset request has been updated by the employee.\n\n` +
+    `Employee: ${employeeName} (${employeeCode})\n` +
+    `Email: ${employee?.Email || "-"}\n` +
+    `Request Date: ${new Date(submission.contract_submitted_date).toLocaleDateString()}\n\n` +
+    `${details}\n\n` +
+    `https://ambasphere.mtc.com.na\n\n` +
+    `Please review the updated submission in New Handset Contracts.`;
+
+  await notifySubmissionParties({
+    employeeCode,
+    employee,
+    userType: "Handset Contract Updated",
+    userMessage,
+    adminType: "Handset Contract Updated",
+    adminMessage,
+    userEmailSubject: "Staff Handset Request Updated",
+    adminEmailSubject: `Handset Contract Updated - ${employeeName} (${employeeCode})`,
   });
 }
 
@@ -295,6 +351,70 @@ exports.createHandsetSubmission = async (req, res) => {
   } catch (error) {
     logError("Error creating handset submission:", error);
     res.status(500).json({ message: "Failed to submit handset request." });
+  }
+};
+
+exports.updateHandsetSubmission = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const employeeCode = normalizeEmployeeCode(req.user?.EmployeeCode);
+    const { device, device_price, excess_payment } = req.body;
+
+    if (!id) {
+      return res.status(400).json({ message: "Submission id is required." });
+    }
+
+    if (!employeeCode) {
+      return res.status(400).json({ message: "Employee code is required." });
+    }
+
+    if (!device) {
+      return res.status(400).json({ message: "Device is required." });
+    }
+
+    const submission = await HandsetContractSubmission.findByPk(id);
+    if (!submission) {
+      return res.status(404).json({ message: "Submission not found." });
+    }
+
+    if (normalizeEmployeeCode(submission.employeeCode) !== employeeCode) {
+      return res.status(403).json({
+        message: "You can only edit your own handset request.",
+      });
+    }
+
+    if (submission.subscription_status !== "pending") {
+      return res.status(400).json({
+        message: "Only pending handset requests can be edited.",
+      });
+    }
+
+    submission.device = device;
+    submission.device_price = Number(device_price) || 0;
+    submission.excess_payment = Number(excess_payment) || 0;
+    await submission.save();
+
+    const employee = await findStaffByEmployeeCode(submission.employeeCode);
+
+    res.status(200).json({
+      message: "Handset request updated successfully.",
+      submission,
+    });
+
+    setImmediate(async () => {
+      try {
+        await notifyHandsetContractUpdated({
+          employeeCode: submission.employeeCode,
+          employee,
+          submission,
+        });
+      } catch (notifyError) {
+        logError("Handset request updated but notification failed:", notifyError);
+      }
+    });
+  } catch (error) {
+    logError("Error updating handset submission:", error);
+    res.status(500).json({ message: "Failed to update handset request." });
   }
 };
 
@@ -569,6 +689,18 @@ exports.adminCancelHandsetSubmission = async (req, res) => {
     if (currentStatus !== "in progress" && currentStatus !== "completed") {
       return res.status(400).json({
         message: "Admins can only cancel submissions that are in progress or completed.",
+      });
+    }
+
+    const assignedCode = normalizeEmployeeCode(submission.assignedAdminCode);
+    if (!assignedCode || assignedCode !== actingAdminCode) {
+      const assignedAdmin = submission.assignedAdminCode
+        ? await findStaffByEmployeeCode(submission.assignedAdminCode)
+        : null;
+      return res.status(403).json({
+        message: assignedAdmin?.FullName
+          ? `This contract is assigned to ${assignedAdmin.FullName}. Only the assigned admin can cancel it.`
+          : "This contract is assigned to another admin. Only the assigned admin can cancel it.",
       });
     }
 

@@ -17,6 +17,7 @@ const AirtimeContractSubmission = require("../models/AirtimeContractSubmission")
 const { findStaffByEmployeeCode } = require("../utils/employeeCode");
 const { notifySubmissionParties } = require("../middlewares/submissionNotify");
 const { openSubmissionWhere } = require("../utils/openSubmissions");
+const { resolveSubmissionMsisdn } = require("../utils/airtimeMsisdn");
 
 function formatMoneyNa(value) {
   const amount = Number(value) || 0;
@@ -45,6 +46,7 @@ function buildSubmissionDetailsMessage(submissions) {
         `Duration: ${duration}\n` +
         `Top-up: ${topUp}\n` +
         `Transaction Type: ${submission.transaction_type || "-"}\n` +
+        `MSISDN: ${submission.msisdn || "-"}\n` +
         `Plan Monthly: ${formatMoneyNa(submission.serviceplan_monthly_price)}\n` +
         `Device Monthly: ${formatMoneyNa(submission.device_monthly_price)}\n` +
         `Status: ${submission.subscription_status || "pending"}`
@@ -95,6 +97,48 @@ async function notifyAirtimeContractSubmission({
     adminMessage,
     userEmailSubject: "Airtime Contract Submitted",
     adminEmailSubject: `New Airtime Contract Submission - ${employeeName} (${employeeCode})`,
+  });
+}
+
+async function notifyAirtimeContractUpdated({
+  employeeCode,
+  employee,
+  submission,
+  monthlyPayment,
+  limitCheck,
+}) {
+  const employeeName = employee?.FullName || employeeCode;
+  const details = buildSubmissionDetailsMessage([submission]);
+  const monthlyLabel = formatMoneyNa(monthlyPayment);
+
+  const userMessage =
+    `Your pending airtime benefit request has been updated.\n\n` +
+    `Employee: ${employeeName} (${employeeCode})\n` +
+    `Estimated Monthly Payment: ${monthlyLabel}\n` +
+    `Limit Check: ${limitCheck || "-"}\n\n` +
+    `${details}\n\n` +
+    `Your request is still pending and will be reviewed by an administrator.`;
+
+  const adminMessage =
+    `A pending airtime benefit request has been updated by the employee.\n\n` +
+    `Employee: ${employeeName} (${employeeCode})\n` +
+    `Email: ${employee?.Email || "-"}\n` +
+    `Estimated Monthly Payment: ${monthlyLabel}\n` +
+    `Limit Check: ${limitCheck || "-"}\n` +
+    `Request Date: ${new Date(submission.contract_submitted_date).toLocaleDateString()}\n\n` +
+    `${details}\n\n` +
+    `https://ambasphere.mtc.com.na\n\n` +
+    `Please review the updated submission in Airtime Contracts.`;
+
+  await notifySubmissionParties({
+    employeeCode,
+    employee,
+    userType: "Airtime Contract Updated",
+    userMessage,
+    adminType: "Airtime Contract Updated",
+    adminMessage,
+    userEmailSubject: "Airtime Benefit Request Updated",
+    adminEmailSubject: `Airtime Contract Updated - ${employeeName} (${employeeCode})`,
   });
 }
 
@@ -197,6 +241,75 @@ async function deleteMatchingPendingContract(submission) {
   if (contract) {
     await contract.destroy();
   }
+}
+
+async function findMatchingPendingContract(submission) {
+  const employeeCode = normalizeEmployeeCode(submission.employeeCode);
+  const duration = Math.trunc(Number(submission.contract_duration));
+  const deviceMonthly = parseFloat(submission.device_monthly_price) || 0;
+  const serviceMonthly = parseFloat(submission.serviceplan_monthly_price) || 0;
+  const monthlyPayment = deviceMonthly + serviceMonthly;
+
+  const whereClause = {
+    [Op.and]: [
+      normalizedEmployeeCodeWhere("EmployeeCode", employeeCode),
+      { ApprovalStatus: "Pending" },
+      { ContractDuration: duration },
+    ],
+  };
+
+  if (submission.device) {
+    whereClause[Op.and].push({ DeviceName: submission.device });
+  }
+
+  const pkg = await Packages.findOne({ where: { PackageName: submission.package } });
+  if (pkg) {
+    whereClause[Op.and].push({ PackageID: pkg.PackageID });
+  }
+
+  let contract = await Contract.findOne({
+    where: whereClause,
+    order: [["ContractNumber", "DESC"]],
+  });
+
+  if (!contract && monthlyPayment > 0) {
+    const pendingContracts = await Contract.findAll({
+      where: {
+        [Op.and]: [
+          normalizedEmployeeCodeWhere("EmployeeCode", employeeCode),
+          { ApprovalStatus: "Pending" },
+          { ContractDuration: duration },
+        ],
+      },
+      order: [["ContractNumber", "DESC"]],
+    });
+
+    contract = pendingContracts.find((item) => {
+      const itemMonthly = parseFloat(item.MonthlyPayment) || 0;
+      const deviceMatches =
+        (item.DeviceName || null) === (submission.device || null);
+      return deviceMatches && Math.abs(itemMonthly - monthlyPayment) < 0.01;
+    });
+  }
+
+  return contract;
+}
+
+async function updateMatchingPendingContract(submission, updates) {
+  const contract = await findMatchingPendingContract(submission);
+  if (!contract) return;
+
+  await contract.update({
+    PackageID: updates.PackageID,
+    MonthlyPayment: updates.MonthlyPayment,
+    ContractDuration: updates.ContractDuration,
+    DeviceName: updates.DeviceName,
+    DevicePrice: updates.DevicePrice,
+    DeviceMonthlyPrice: updates.DeviceMonthlyPrice,
+    UpfrontPayment: updates.UpfrontPayment,
+    LimitCheck: updates.LimitCheck,
+    MSISDN: updates.MSISDN,
+  });
 }
 
 function normalizeEmployeeCode(employeeCode) {
@@ -712,7 +825,13 @@ exports.createInitialContract = async (req, res) => {
       const individualContractMonthlyPayment = pkg.AdjustedMonthlyPrice;
       const packagePrice = parseFloat(pkg.BaseMonthlyPrice) || 0;
       const servicePlanMonthlyPrice = packagePrice;
-
+      const resolvedMsisdn = resolveSubmissionMsisdn(
+        pkg.SubscriptionStatus,
+        pkg.MSISDN || pkg.msisdn || MSISDN
+      );
+      if (resolvedMsisdn.error) {
+        return res.status(400).json({ message: resolvedMsisdn.error });
+      }
 
       const contractDataForEntry = {
         EmployeeCode: normalizedEmployeeCode,
@@ -722,7 +841,7 @@ exports.createInitialContract = async (req, res) => {
         ApprovalStatus: ApprovalStatus, // Use the status from the frontend
         ContractDuration: pkg.ContractDuration, // Specific duration for this package
         SubscriptionStatus: "Renewed", // Specific status for this package
-        MSISDN: null, // MSISDN applied to all entries in this submission
+        MSISDN: resolvedMsisdn.msisdn,
         ContractStartDate: null,
         ContractEndDate: null, // Still empty from frontend, consider calculating
         DeviceName: deviceNameForDb,
@@ -738,7 +857,7 @@ exports.createInitialContract = async (req, res) => {
       const submission = await AirtimeContractSubmission.create({
         employeeCode: normalizedEmployeeCode,
         package: pkg.DisplayName || String(pkg.PackageID),
-        msisdn: MSISDN || null,
+        msisdn: resolvedMsisdn.msisdn,
         device: deviceNameForDb || null,
         package_price: packagePrice,
         device_initail_cost: devicePriceForDb ? devicePriceForDb : 0,
@@ -785,6 +904,183 @@ exports.createInitialContract = async (req, res) => {
       message: "Failed to create contracts.",
       error: process.env.NODE_ENV === "production" ? undefined : error.message,
     });
+  }
+};
+
+exports.updateAirtimeSubmission = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const employeeCode = normalizeEmployeeCode(req.user?.EmployeeCode);
+    const {
+      PackageID,
+      DisplayName,
+      BaseMonthlyPrice,
+      AdjustedMonthlyPrice,
+      ContractDuration,
+      SubscriptionStatus,
+      DeviceAssigned,
+      TopUpAmount,
+      LimitCheck,
+      MSISDN,
+    } = req.body;
+
+    if (!id) {
+      return res.status(400).json({ message: "Submission id is required." });
+    }
+
+    if (!employeeCode) {
+      return res.status(400).json({ message: "Employee code is required." });
+    }
+
+    if (!PackageID || ContractDuration == null || AdjustedMonthlyPrice === undefined) {
+      return res.status(400).json({
+        message: "Package, duration, and monthly payment are required.",
+      });
+    }
+
+    const submission = await AirtimeContractSubmission.findByPk(id);
+    if (!submission) {
+      return res.status(404).json({ message: "Submission not found." });
+    }
+
+    if (normalizeEmployeeCode(submission.employeeCode) !== employeeCode) {
+      return res.status(403).json({
+        message: "You can only edit your own airtime benefit request.",
+      });
+    }
+
+    if (submission.subscription_status !== "pending") {
+      return res.status(400).json({
+        message: "Only pending airtime benefit requests can be edited.",
+      });
+    }
+
+    const packageRecord = await Packages.findByPk(PackageID);
+    if (!packageRecord) {
+      return res.status(400).json({ message: "Selected package was not found." });
+    }
+
+    const allowsDevice =
+      packageRecord.AllowsDevice === undefined ||
+      packageRecord.AllowsDevice === null ||
+      packageRecord.AllowsDevice === true ||
+      packageRecord.AllowsDevice === 1 ||
+      packageRecord.AllowsDevice === "1";
+
+    let deviceNameForDb = null;
+    let devicePriceForDb = 0;
+    let deviceMonthlyPriceForDb = 0;
+    let upfrontPaymentForDb = 0;
+
+    if (DeviceAssigned && allowsDevice) {
+      deviceNameForDb = DeviceAssigned.DeviceName || null;
+      devicePriceForDb = parseFloat(DeviceAssigned.DevicePrice) || 0;
+      deviceMonthlyPriceForDb = parseFloat(DeviceAssigned.MonthlyDeviceCost) || 0;
+      upfrontPaymentForDb = parseFloat(DeviceAssigned.UpfrontPayment) || 0;
+
+      const hasDeviceLimit =
+        packageRecord.HasDeviceLimit === true ||
+        packageRecord.HasDeviceLimit === 1 ||
+        packageRecord.HasDeviceLimit === "1";
+      const deviceLimit = parseFloat(packageRecord.DeviceLimit);
+
+      if (
+        hasDeviceLimit &&
+        !Number.isNaN(deviceLimit) &&
+        deviceLimit > 0 &&
+        devicePriceForDb > deviceLimit
+      ) {
+        return res.status(400).json({
+          message: `Device price N$${devicePriceForDb.toLocaleString()} exceeds the limit of N$${deviceLimit.toLocaleString()} for package "${packageRecord.PackageName}".`,
+        });
+      }
+    } else if (DeviceAssigned && !allowsDevice) {
+      return res.status(400).json({
+        message: "The selected package does not allow a device.",
+      });
+    }
+
+    const duration = Math.trunc(Number(ContractDuration));
+    const packagePrice = parseFloat(BaseMonthlyPrice) || parseFloat(packageRecord.MonthlyPrice) || 0;
+    const servicePlanMonthlyPrice = packagePrice;
+    const monthlyPayment =
+      parseFloat(AdjustedMonthlyPrice) ||
+      servicePlanMonthlyPrice + deviceMonthlyPriceForDb;
+    const totalTopUpAmount = Math.max(0, parseFloat(TopUpAmount) || 0);
+    const normalizedLimitCheck = (() => {
+      const value = String(LimitCheck || "").toLowerCase();
+      if (
+        value.includes("within") ||
+        value.includes("top-up") ||
+        value.includes("top up")
+      ) {
+        return "Within Limit";
+      }
+      return "Exceeding Limit";
+    })();
+
+    const resolvedMsisdn = resolveSubmissionMsisdn(SubscriptionStatus, MSISDN);
+    if (resolvedMsisdn.error) {
+      return res.status(400).json({ message: resolvedMsisdn.error });
+    }
+
+    const previousSnapshot = submission.toJSON();
+
+    submission.package = DisplayName || packageRecord.PackageName;
+    submission.device = deviceNameForDb;
+    submission.msisdn = resolvedMsisdn.msisdn;
+    submission.package_price = packagePrice;
+    submission.device_initail_cost = devicePriceForDb;
+    submission.contract_duration = duration;
+    submission.top_up_amount = totalTopUpAmount;
+    submission.device_upfront_payment = upfrontPaymentForDb;
+    submission.device_monthly_price = deviceMonthlyPriceForDb;
+    submission.serviceplan_monthly_price = servicePlanMonthlyPrice;
+    submission.transaction_type = SubscriptionStatus || submission.transaction_type || "New";
+    await submission.save();
+
+    try {
+      await updateMatchingPendingContract(previousSnapshot, {
+        PackageID: packageRecord.PackageID,
+        MonthlyPayment: monthlyPayment,
+        ContractDuration: duration,
+        DeviceName: deviceNameForDb,
+        DevicePrice: devicePriceForDb,
+        DeviceMonthlyPrice: deviceMonthlyPriceForDb,
+        UpfrontPayment: upfrontPaymentForDb,
+        LimitCheck: normalizedLimitCheck,
+        MSISDN: resolvedMsisdn.msisdn,
+      });
+    } catch (cleanupError) {
+      logError(
+        "Airtime request updated but pending contract sync failed:",
+        cleanupError
+      );
+    }
+
+    const employee = await findStaffByEmployeeCode(submission.employeeCode);
+
+    res.status(200).json({
+      message: "Airtime benefit request updated successfully.",
+      submission,
+    });
+
+    setImmediate(async () => {
+      try {
+        await notifyAirtimeContractUpdated({
+          employeeCode: submission.employeeCode,
+          employee,
+          submission,
+          monthlyPayment,
+          limitCheck: normalizedLimitCheck,
+        });
+      } catch (notifyError) {
+        logError("Airtime request updated but notification failed:", notifyError);
+      }
+    });
+  } catch (error) {
+    logError("Error updating airtime submission:", error);
+    res.status(500).json({ message: "Failed to update airtime benefit request." });
   }
 };
 
@@ -1762,6 +2058,18 @@ exports.adminCancelAirtimeSubmission = async (req, res) => {
     if (currentStatus !== "in progress" && currentStatus !== "completed") {
       return res.status(400).json({
         message: "Admins can only cancel submissions that are in progress or completed.",
+      });
+    }
+
+    const assignedCode = normalizeEmployeeCode(submission.assignedAdminCode);
+    if (!assignedCode || assignedCode !== actingAdminCode) {
+      const assignedAdmin = submission.assignedAdminCode
+        ? await findStaffByEmployeeCode(submission.assignedAdminCode)
+        : null;
+      return res.status(403).json({
+        message: assignedAdmin?.FullName
+          ? `This contract is assigned to ${assignedAdmin.FullName}. Only the assigned admin can cancel it.`
+          : "This contract is assigned to another admin. Only the assigned admin can cancel it.",
       });
     }
 

@@ -48,6 +48,11 @@ router.put(
   checkAdmin,
   contractsController.adminCancelAirtimeSubmission
 );
+router.put(
+  "/submissions/:id",
+  checkAdminUser,
+  contractsController.updateAirtimeSubmission
+);
 
 router.get("/:employeeCode", checkAllUsers, contractsController.getStaffContractById);
 router.get("/Temp/:employeeCode", checkAllUsers, contractsController.getTempContractById);

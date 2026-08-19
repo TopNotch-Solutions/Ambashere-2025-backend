@@ -38,6 +38,11 @@ router.post(
   handsetSubmissionsController.createHandsetSubmission
 );
 router.put(
+  "/submissions/:id",
+  checkAdminUser,
+  handsetSubmissionsController.updateHandsetSubmission
+);
+router.put(
   "/submissions/:id/status",
   checkAdmin,
   handsetSubmissionsController.updateHandsetSubmissionStatus
