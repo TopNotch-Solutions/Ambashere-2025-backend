@@ -34,6 +34,10 @@ const CdrLiveEmployeeContractDetails = sequelize.define(
       type: DataTypes.DECIMAL(10, 2),
       allowNull: false,
     },
+    plan_period: {
+      type: DataTypes.DECIMAL(10, 2),
+      allowNull: true,
+    },
     contract_start_date: {
       type: DataTypes.DATE,
       allowNull: true,

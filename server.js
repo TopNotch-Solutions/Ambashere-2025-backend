@@ -352,6 +352,13 @@ cron.schedule('0 15,20 * * *', withSyncLock("employee-contracts", async () => {
       return Number.isFinite(parsed) ? parsed : 0;
     };
 
+    const toPlanPeriodOrNull = (value) => {
+      if (value == null || typeof value === "object") return null;
+      const parsed = Number.parseFloat(value);
+      if (!Number.isFinite(parsed) || parsed <= 0) return null;
+      return Math.trunc(parsed);
+    };
+
     const toStringOrEmpty = (value) => {
       if (value == null || typeof value === "object") return "";
       return String(value);
@@ -369,6 +376,7 @@ cron.schedule('0 15,20 * * *', withSyncLock("employee-contracts", async () => {
         msisdn: toStringOrEmpty(c.msisdn),
         device: toStringOrEmpty(c.device),
         contract_duration: toNumberOrZero(c.contract_duration),
+        plan_period: toPlanPeriodOrNull(c.plan_period),
         contract_start_date: toDateOrNull(c.contract_start_date),
         contract_end_date: toDateOrNull(c.contract_end_date),
         package_price: toNumberOrZero(c.package_price),
