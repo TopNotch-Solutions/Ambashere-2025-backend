@@ -7,6 +7,10 @@ const Events = require("../models/Events");
 const Notifications = require("../models/Notifications");
 const Staff = require("../models/Staff");
 const {
+  findStaffByEmployeeCode,
+  normalizeEmployeeCode,
+} = require("../utils/employeeCode");
+const {
   sendCalendarEventEmail,
 } = require("../middlewares/notificationEmail");
 const {
@@ -18,13 +22,6 @@ const {
 const queryOptions = { logging: false };
 
 let notificationColumnReady = false;
-
-function normalizeEmployeeCode(employeeCode) {
-  return String(employeeCode || "")
-    .trim()
-    .replace(/[-\s]/g, "")
-    .toUpperCase();
-}
 
 async function ensureNotificationSentColumn() {
   if (notificationColumnReady) return;
@@ -92,20 +89,14 @@ async function resolveNotificationOwnerCode(recipientEmployeeCode) {
     return normalizeEmployeeCode(TEST_NOTIFICATION_OWNER_CODE);
   }
 
-  const normalizedCode = normalizeEmployeeCode(recipientEmployeeCode);
-  const staff = await Staff.findOne({
-    where: { EmployeeCode: recipientEmployeeCode },
-    attributes: ["EmployeeCode"],
-    ...queryOptions,
-  });
-
-  if (!staff) {
+  const staff = await findStaffByEmployeeCode(recipientEmployeeCode);
+  if (!staff?.EmployeeCode) {
     throw new Error(
       `Employee ${recipientEmployeeCode} not found in employees table`
     );
   }
 
-  return normalizedCode;
+  return staff.EmployeeCode;
 }
 
 async function createEventNotification(
@@ -130,6 +121,35 @@ async function createEventNotification(
     },
     { transaction, ...queryOptions }
   );
+}
+
+async function resolveEventRecipients(event, allEmployees) {
+  if (event.TargetEmployeeCode) {
+    const staff =
+      (await findStaffByEmployeeCode(event.TargetEmployeeCode)) ||
+      allEmployees.find(
+        (employee) =>
+          normalizeEmployeeCode(employee.EmployeeCode) ===
+          normalizeEmployeeCode(event.TargetEmployeeCode)
+      );
+
+    if (!staff) {
+      logger.warn(
+        `Calendar event ${event.EventID} targets unknown employee ${event.TargetEmployeeCode}`
+      );
+      return [];
+    }
+
+    return getNotificationRecipients([
+      {
+        EmployeeCode: staff.EmployeeCode,
+        FullName: staff.FullName,
+        Email: staff.Email,
+      },
+    ]);
+  }
+
+  return getNotificationRecipients(allEmployees);
 }
 
 async function getActiveEmployees() {
@@ -205,11 +225,22 @@ async function processDueEventNotifications() {
     return;
   }
 
-  const recipients = getNotificationRecipients(employees);
-
   for (const event of dueEvents) {
     const notificationType = getEventNotificationType(event);
     const message = buildInAppMessage(event);
+    const recipients = await resolveEventRecipients(event, employees);
+
+    if (recipients.length === 0) {
+      logger.warn(
+        `Calendar event ${event.EventID} skipped: no recipients resolved`
+      );
+      continue;
+    }
+
+    const emailAudience = event.TargetEmployeeCode
+      ? recipients
+      : employees;
+
     const transaction = await sequelize.transaction({ ...queryOptions });
     const createdNotifications = [];
 
@@ -238,7 +269,7 @@ async function processDueEventNotifications() {
 
       let emailSent = false;
       try {
-        await sendEventEmails(event, employees);
+        await sendEventEmails(event, emailAudience);
         emailSent = true;
       } catch (emailError) {
         logError(

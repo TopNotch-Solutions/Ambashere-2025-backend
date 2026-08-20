@@ -12,6 +12,10 @@ const { sendEmail } = require("../middlewares/email");
 const { sendFinanceTeamEmail } = require("../middlewares/financeEmail");
 const { sendAdminEmail } = require("../middlewares/adminEmail");
 const { openSubmissionWhere } = require("../utils/openSubmissions");
+const {
+  getHandsetRenewalOverrideMap,
+  applyEffectiveRenewalDate,
+} = require("../utils/handsetRenewalOverride");
 
 function normalizeEmployeeCode(employeeCode) {
   return String(employeeCode || "")
@@ -154,20 +158,26 @@ exports.getHandsetsUser = async (req, res) => {
     });
     const submissions = await getOpenHandsetSubmissions(employeeCode);
     const appliedHandsets = submissions.map(mapSubmissionToStaffHandset);
+    const overrideMap = await getHandsetRenewalOverrideMap();
     const handsets = [
       ...appliedHandsets,
-      ...cdrHandsets.map((item) => ({
-        id: item.id,
-        EmployeeCode: item.employee_code,
-        HandsetName: item.description || item.part_no,
-        HandsetPrice: Number(item.cost || 0),
-        MRNumber: item.mr_number,
-        FixedAssetCode: item.fixed_asset_code,
-        RenewalDate: item.renewal_date,
-        CollectionDate: item.collected_date,
-        Status: item.status === "active" ? "Active" : "Completed",
-        RequestDate: item.createdAt,
-      })),
+      ...cdrHandsets.map((item) =>
+        applyEffectiveRenewalDate(
+          {
+            id: item.id,
+            EmployeeCode: item.employee_code,
+            HandsetName: item.description || item.part_no,
+            HandsetPrice: Number(item.cost || 0),
+            MRNumber: item.mr_number,
+            FixedAssetCode: item.fixed_asset_code,
+            RenewalDate: item.renewal_date,
+            CollectionDate: item.collected_date,
+            Status: item.status === "active" ? "Active" : "Completed",
+            RequestDate: item.createdAt,
+          },
+          overrideMap
+        )
+      ),
     ];
     res.status(200).json(handsets);
   } catch (error) {
@@ -288,20 +298,26 @@ exports.getHandsetsByStaff = async (req, res) => {
 
     const submissions = await getOpenHandsetSubmissions(employeeCode);
     const appliedHandsets = submissions.map(mapSubmissionToStaffHandset);
+    const overrideMap = await getHandsetRenewalOverrideMap();
     const handsets = [
       ...appliedHandsets,
-      ...cdrHandsets.map((item) => ({
-        id: item.id,
-        EmployeeCode: item.employee_code,
-        HandsetName: item.description || item.part_no,
-        HandsetPrice: Number(item.cost || 0),
-        MRNumber: item.mr_number,
-        FixedAssetCode: item.fixed_asset_code,
-        RenewalDate: item.renewal_date,
-        CollectionDate: item.collected_date,
-        Status: item.status === "active" ? "Active" : "Completed",
-        RequestDate: item.createdAt,
-      })),
+      ...cdrHandsets.map((item) =>
+        applyEffectiveRenewalDate(
+          {
+            id: item.id,
+            EmployeeCode: item.employee_code,
+            HandsetName: item.description || item.part_no,
+            HandsetPrice: Number(item.cost || 0),
+            MRNumber: item.mr_number,
+            FixedAssetCode: item.fixed_asset_code,
+            RenewalDate: item.renewal_date,
+            CollectionDate: item.collected_date,
+            Status: item.status === "active" ? "Active" : "Completed",
+            RequestDate: item.createdAt,
+          },
+          overrideMap
+        )
+      ),
     ];
 
     return res.json({ handsets });
@@ -504,7 +520,11 @@ exports.getHandsetsOfStaff = async (req, res) => {
     });
     const submissions = await getOpenHandsetSubmissions();
     const appliedHandsets = submissions.map(mapSubmissionToStaffHandset);
-    res.status(200).json([...appliedHandsets, ...staffHandsets]);
+    const overrideMap = await getHandsetRenewalOverrideMap();
+    const withOverrides = staffHandsets.map((item) =>
+      applyEffectiveRenewalDate(item.toJSON ? item.toJSON() : item, overrideMap)
+    );
+    res.status(200).json([...appliedHandsets, ...withOverrides]);
   } catch (error) {
     logError("Error retrieving handset details by staff:", error);
     res.status(500).json({

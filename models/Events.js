@@ -41,6 +41,15 @@ const Events = sequelize.define(
       allowNull: false,
       defaultValue: false,
     },
+    TargetEmployeeCode: {
+      type: DataTypes.STRING(50),
+      allowNull: true,
+    },
+    IsHandsetRenewal: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false,
+    },
   },
   {
     timestamps: false,

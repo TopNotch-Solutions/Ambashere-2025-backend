@@ -541,6 +541,23 @@ cron.schedule('0 15,20 * * *', withSyncLock("employee-handsets", async () => {
 
     await transaction.commit();
 
+    try {
+      const {
+        clearOverridesSupersededByCdrHandsets,
+      } = require("./utils/handsetRenewalOverride");
+      const cleared = await clearOverridesSupersededByCdrHandsets(formattedData);
+      if (cleared > 0) {
+        console.log(
+          `Cleared ${cleared} handset renewal override(s) superseded by CDR sync`
+        );
+      }
+    } catch (clearError) {
+      logError(
+        "Handset sync succeeded but clearing superseded renewal overrides failed:",
+        clearError
+      );
+    }
+
     console.log("Employee handset details updated successfully");
 
   } catch (error) {

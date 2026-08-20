@@ -11,6 +11,12 @@ const {
 } = require("../utils/employeeCode");
 const { notifySubmissionParties } = require("../middlewares/submissionNotify");
 const { openSubmissionWhere } = require("../utils/openSubmissions");
+const {
+  getHandsetRenewalOverrideMap,
+  getEffectiveRenewalDate,
+  formatRenewalDateLabel,
+  clearHandsetRenewalOverride,
+} = require("../utils/handsetRenewalOverride");
 
 const STATUS_TRANSITIONS = {
   pending: "in progress",
@@ -98,8 +104,28 @@ async function getEligibility(employeeCode) {
       ["id", "DESC"],
     ],
   });
+  const overrideMap = await getHandsetRenewalOverrideMap();
+  const effectiveFor = (item) =>
+    getEffectiveRenewalDate(
+      item.employee_code,
+      item.renewal_date,
+      overrideMap,
+      item.collected_date
+    );
 
   if (cdrHandsets.length === 0) {
+    const overrideOnly = overrideMap.get(normalized);
+    if (overrideOnly?.renewalDate && !isRenewalDue(overrideOnly.renewalDate)) {
+      return {
+        canApply: false,
+        canEditPending: false,
+        reason:
+          `Your new staff handset date is ${formatRenewalDateLabel(
+            overrideOnly.renewalDate
+          )}. You can only apply on or after that date.`,
+      };
+    }
+
     return {
       canApply: true,
       reason:
@@ -113,46 +139,66 @@ async function getEligibility(employeeCode) {
 
   if (activeHandsets.length > 0) {
     const beingFinalised = activeHandsets.some(
-      (item) => !hasRenewalDate(item.renewal_date)
+      (item) => !hasRenewalDate(effectiveFor(item))
     );
     if (beingFinalised) {
       return {
         canApply: false,
+        canEditPending: false,
         reason:
           "Your current staff handset is still being finalised and does not have a renewal date yet. You cannot apply for another device until it is completed.",
       };
     }
 
-    if (activeHandsets.some((item) => isRenewalDue(item.renewal_date))) {
+    if (activeHandsets.some((item) => isRenewalDue(effectiveFor(item)))) {
       return {
         canApply: true,
+        canEditPending: false,
         reason:
           "Your new staff handset due date has been reached, so you may apply.",
       };
     }
 
+    const nextDue = activeHandsets
+      .map((item) => effectiveFor(item))
+      .filter((value) => hasRenewalDate(value))
+      .sort((a, b) => new Date(a) - new Date(b))[0];
+
     return {
       canApply: false,
-      reason:
-        "Your current staff handset is not yet due for renewal. A new device can only be requested when the due date is reached.",
+      canEditPending: false,
+      reason: nextDue
+        ? `Your current staff handset is not yet due for renewal. A new device can only be requested on or after ${formatRenewalDateLabel(
+            nextDue
+          )}.`
+        : "Your current staff handset is not yet due for renewal. A new device can only be requested when the due date is reached.",
     };
   }
 
   const primaryDoneHandset = cdrHandsets.find(
     (item) => handsetStatus(item) === "done"
   );
-  if (primaryDoneHandset && isRenewalDue(primaryDoneHandset.renewal_date)) {
+  if (primaryDoneHandset && isRenewalDue(effectiveFor(primaryDoneHandset))) {
     return {
       canApply: true,
+      canEditPending: false,
       reason:
         "Your staff handset contract has ended and your renewal date has been reached, so you may apply.",
     };
   }
 
+  const doneDue = primaryDoneHandset
+    ? effectiveFor(primaryDoneHandset)
+    : null;
+
   return {
     canApply: false,
-    reason:
-      "Your current staff handset is not yet due for renewal. A new device can only be requested when the due date is reached.",
+    canEditPending: false,
+    reason: doneDue
+      ? `Your current staff handset is not yet due for renewal. A new device can only be requested on or after ${formatRenewalDateLabel(
+          doneDue
+        )}.`
+      : "Your current staff handset is not yet due for renewal. A new device can only be requested when the due date is reached.",
   };
 }
 
@@ -232,6 +278,7 @@ async function notifyHandsetContractCancellation({
   submission,
   cancelledByAdmin,
   previousStatus,
+  cancellationReason,
 }) {
   const employeeName = employee?.FullName || submission.employee_name || employeeCode;
   const details =
@@ -239,9 +286,11 @@ async function notifyHandsetContractCancellation({
     `Device Price: ${formatMoneyNa(submission.device_price)}\n` +
     `Excess Payment: ${formatMoneyNa(submission.excess_payment)}`;
   const cancelledByAdminName = cancelledByAdmin?.FullName || cancelledByAdmin?.EmployeeCode;
+  const reasonText = String(cancellationReason || "").trim();
 
   const userMessage = cancelledByAdminName
     ? `Your staff handset request has been cancelled by an administrator (${cancelledByAdminName}).\n\n` +
+      `Reason: ${reasonText || "-"}\n\n` +
       `Employee: ${employeeName} (${employeeCode})\n` +
       `${details}\n\n` +
       `You may submit a new staff handset request when you are eligible.`
@@ -252,6 +301,7 @@ async function notifyHandsetContractCancellation({
 
   const adminMessage = cancelledByAdminName
     ? `A staff handset request has been cancelled by administrator ${cancelledByAdminName}.\n\n` +
+      `Reason: ${reasonText || "-"}\n\n` +
       `Employee: ${employeeName} (${employeeCode})\n` +
       `Email: ${employee?.Email || "-"}\n` +
       `Previous status: ${previousStatus || submission.subscription_status || "-"}\n` +
@@ -328,6 +378,15 @@ exports.createHandsetSubmission = async (req, res) => {
       contract_submitted_date: new Date(),
       subscription_status: "pending",
     });
+
+    try {
+      await clearHandsetRenewalOverride(employee.EmployeeCode);
+    } catch (clearError) {
+      logError(
+        "Handset request created but clearing renewal override failed:",
+        clearError
+      );
+    }
 
     res.status(201).json({
       message: "Handset request submitted successfully.",
@@ -589,6 +648,15 @@ exports.markHandsetSubmissionReceived = async (req, res) => {
     submission.isReceived = true;
     await submission.save();
 
+    try {
+      await clearHandsetRenewalOverride(submission.employeeCode);
+    } catch (clearError) {
+      logError(
+        "Handset marked received but clearing renewal override failed:",
+        clearError
+      );
+    }
+
     res.status(200).json({
       message: "Submission marked as received.",
       submission,
@@ -662,6 +730,7 @@ exports.adminCancelHandsetSubmission = async (req, res) => {
   try {
     const { id } = req.params;
     const actingAdminCode = normalizeEmployeeCode(req.user?.EmployeeCode);
+    const cancellationReason = String(req.body?.reason || req.body?.cancellationReason || "").trim();
 
     if (!id) {
       return res.status(400).json({ message: "Submission id is required." });
@@ -669,6 +738,12 @@ exports.adminCancelHandsetSubmission = async (req, res) => {
 
     if (!actingAdminCode) {
       return res.status(401).json({ message: "Admin employee code is required." });
+    }
+
+    if (!cancellationReason) {
+      return res.status(400).json({
+        message: "A cancellation reason is required.",
+      });
     }
 
     const submission = await HandsetContractSubmission.findByPk(id);
@@ -721,6 +796,7 @@ exports.adminCancelHandsetSubmission = async (req, res) => {
           submission,
           cancelledByAdmin,
           previousStatus: currentStatus,
+          cancellationReason,
         });
       } catch (notifyError) {
         logError("Handset request cancelled but notification failed:", notifyError);

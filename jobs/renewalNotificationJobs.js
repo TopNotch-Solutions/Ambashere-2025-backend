@@ -3,7 +3,6 @@ const { Op } = require("sequelize");
 const sequelize = require("../config/database");
 const logger = require("../middlewares/errorLogger");
 const Notifications = require("../models/Notifications");
-const Staff = require("../models/Staff");
 const CdrLiveEmployeeHandsetDetail = require("../models/crdliveEmployeeHandsetDetail");
 const CdrLiveEmployeeContractDetails = require("../models/crdliveEmployeeContractDetail");
 const { excludedPackageWhere } = CdrLiveEmployeeContractDetails;
@@ -11,6 +10,12 @@ const {
   NOTIFICATION_EMAIL_TEST_ONLY,
   TEST_NOTIFICATION_OWNER_CODE,
 } = require("./notificationEmailConfig");
+const {
+  getHandsetRenewalOverrideMap,
+  getEffectiveRenewalDate,
+  toDateOnlyString,
+} = require("../utils/handsetRenewalOverride");
+const { findStaffByEmployeeCode } = require("../utils/employeeCode");
 
 const STAFF_PORTAL_URL =
   process.env.STAFF_PORTAL_URL ||
@@ -122,18 +127,14 @@ async function resolveNotificationOwnerCode(recipientEmployeeCode) {
     return TEST_NOTIFICATION_OWNER_CODE;
   }
 
-  const staff = await Staff.findOne({
-    where: { EmployeeCode: recipientEmployeeCode },
-    attributes: ["EmployeeCode"],
-  });
-
-  if (!staff) {
+  const staff = await findStaffByEmployeeCode(recipientEmployeeCode);
+  if (!staff?.EmployeeCode) {
     throw new Error(
       `Employee ${recipientEmployeeCode} not found in employees table`
     );
   }
 
-  return recipientEmployeeCode;
+  return staff.EmployeeCode;
 }
 
 async function createNotification(recipientEmployeeCode, type, message, transaction) {
@@ -226,28 +227,54 @@ function exactSevenDaysFromNowRange() {
   return [startOfDay(targetDay), endOfDay(targetDay)];
 }
 
+function isDateInRange(value, rangeStart, rangeEnd) {
+  const dateOnly = toDateOnlyString(value);
+  if (!dateOnly) return false;
+  const date = new Date(`${dateOnly}T12:00:00`);
+  return date >= rangeStart && date <= rangeEnd;
+}
+
 async function processHandsetWeekRenewals() {
   const [sevenDaysStart, sevenDaysEnd] = exactSevenDaysFromNowRange();
 
   const approachingRenewals = await CdrLiveEmployeeHandsetDetail.findAll({
     where: {
       status: "active",
-      renewal_date: { [Op.between]: [sevenDaysStart, sevenDaysEnd] },
     },
   });
+  const overrideMap = await getHandsetRenewalOverrideMap();
 
-  logger.info(`Handset renewal (7-day) cron: ${approachingRenewals.length} candidate(s)`);
+  const dueHandsets = approachingRenewals.filter((handset) =>
+    isDateInRange(
+      getEffectiveRenewalDate(
+        handset.employee_code,
+        handset.renewal_date,
+        overrideMap,
+        handset.collected_date
+      ),
+      sevenDaysStart,
+      sevenDaysEnd
+    )
+  );
 
-  for (const handset of approachingRenewals) {
+  logger.info(`Handset renewal (7-day) cron: ${dueHandsets.length} candidate(s)`);
+
+  for (const handset of dueHandsets) {
     try {
       const employeeName = getEmployeeName(handset);
+      const effectiveRenewalDate = getEffectiveRenewalDate(
+        handset.employee_code,
+        handset.renewal_date,
+        overrideMap,
+        handset.collected_date
+      );
 
       await createNotificationIfAbsent(
         handset.employee_code,
         NOTIFICATION_TYPES.HANDSET_WEEK,
         buildHandsetWeekMessage(
           employeeName,
-          handset.renewal_date,
+          effectiveRenewalDate,
           getHandsetDeviceName(handset),
           STAFF_PORTAL_URL
         ),
@@ -266,12 +293,25 @@ async function processHandsetRenewalsDueToday() {
   const todayStart = startOfDay();
   const todayEnd = endOfDay();
 
-  const dueTodayHandsets = await CdrLiveEmployeeHandsetDetail.findAll({
+  const activeHandsets = await CdrLiveEmployeeHandsetDetail.findAll({
     where: {
       status: "active",
-      renewal_date: { [Op.between]: [todayStart, todayEnd] },
     },
   });
+  const overrideMap = await getHandsetRenewalOverrideMap();
+
+  const dueTodayHandsets = activeHandsets.filter((handset) =>
+    isDateInRange(
+      getEffectiveRenewalDate(
+        handset.employee_code,
+        handset.renewal_date,
+        overrideMap,
+        handset.collected_date
+      ),
+      todayStart,
+      todayEnd
+    )
+  );
 
   logger.info(`Handset renewal (today) cron: ${dueTodayHandsets.length} candidate(s)`);
 

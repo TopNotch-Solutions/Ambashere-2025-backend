@@ -148,13 +148,16 @@ async function notifyAirtimeContractCancellation({
   submission,
   cancelledByAdmin,
   previousStatus,
+  cancellationReason,
 }) {
   const employeeName = employee?.FullName || employeeCode;
   const details = buildSubmissionDetailsMessage([submission]);
+  const reasonText = String(cancellationReason || "").trim();
 
   const cancelledByAdminName = cancelledByAdmin?.FullName || cancelledByAdmin?.EmployeeCode;
   const userMessage = cancelledByAdminName
     ? `Your airtime benefit request has been cancelled by an administrator (${cancelledByAdminName}).\n\n` +
+      `Reason: ${reasonText || "-"}\n\n` +
       `Employee: ${employeeName} (${employeeCode})\n\n` +
       `${details}\n\n` +
       `You may submit a new airtime benefit request when you are eligible.`
@@ -165,6 +168,7 @@ async function notifyAirtimeContractCancellation({
 
   const adminMessage = cancelledByAdminName
     ? `An airtime benefit request has been cancelled by administrator ${cancelledByAdminName}.\n\n` +
+      `Reason: ${reasonText || "-"}\n\n` +
       `Employee: ${employeeName} (${employeeCode})\n` +
       `Email: ${employee?.Email || "-"}\n` +
       `Previous status: ${previousStatus || submission.subscription_status || "-"}\n` +
@@ -2031,6 +2035,7 @@ exports.adminCancelAirtimeSubmission = async (req, res) => {
   try {
     const { id } = req.params;
     const actingAdminCode = normalizeEmployeeCode(req.user?.EmployeeCode);
+    const cancellationReason = String(req.body?.reason || req.body?.cancellationReason || "").trim();
 
     if (!id) {
       return res.status(400).json({ message: "Submission id is required." });
@@ -2038,6 +2043,12 @@ exports.adminCancelAirtimeSubmission = async (req, res) => {
 
     if (!actingAdminCode) {
       return res.status(401).json({ message: "Admin employee code is required." });
+    }
+
+    if (!cancellationReason) {
+      return res.status(400).json({
+        message: "A cancellation reason is required.",
+      });
     }
 
     const submission = await AirtimeContractSubmission.findByPk(id);
@@ -2099,6 +2110,7 @@ exports.adminCancelAirtimeSubmission = async (req, res) => {
           submission,
           cancelledByAdmin,
           previousStatus: currentStatus,
+          cancellationReason,
         });
       } catch (notifyError) {
         logError("Airtime request cancelled but notification failed:", notifyError);

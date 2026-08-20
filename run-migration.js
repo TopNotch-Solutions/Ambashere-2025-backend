@@ -9,6 +9,7 @@ const createHandsetContractSubmissions = require("./migrations/create_handset_co
 const addAssignedAdminToContractSubmissions = require("./migrations/add_assigned_admin_to_contract_submissions");
 const addIsReceivedToContractSubmissions = require("./migrations/add_is_received_to_contract_submissions");
 const addPlanPeriodToCrdliveContracts = require("./migrations/add_plan_period_to_crdlive_contracts");
+const addHandsetRenewalOverrides = require("./migrations/add_handset_renewal_overrides");
 const sequelize = require("./config/database");
 
 const runMigration = async () => {
@@ -26,6 +27,7 @@ const runMigration = async () => {
     await addAssignedAdminToContractSubmissions.up();
     await addIsReceivedToContractSubmissions.up();
     await addPlanPeriodToCrdliveContracts.up();
+    await addHandsetRenewalOverrides.up();
     await addTransactionTypeToAirtimeSubmissions();
     await addTopUpAmountToAirtimeSubmissions();
     await removeUserNameFromEmployees();
