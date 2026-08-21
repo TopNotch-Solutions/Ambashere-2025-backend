@@ -237,24 +237,31 @@ exports.updateById = async (req, res) => {
     if (updatedCount === 0) {
       return res.status(404).json({ message: "Handset not found or no changes made." });
     }
-   if(status === "Approved"){
+
+    const staff = await findStaffByEmployeeCode(
+      exit?.EmployeeCode || EmployeeCode || normalizedEmployeeCode
+    );
+    const canonicalEmployeeCode =
+      staff?.EmployeeCode || exit?.EmployeeCode || null;
+
+   if(status === "Approved" && canonicalEmployeeCode){
      await Notifications.create({
-        EmployeeCode: normalizedEmployeeCode,
+        EmployeeCode: canonicalEmployeeCode,
         Type: "Handset Approved",
         Message: `Your handset request has been approved!\n\nThe device is now assigned to you. Please note your renewal will be due in 2 years from the collection date (${new Date(CollectionDate).toLocaleDateString()}).`,
         Viewed: false,
         Created_At: new Date(),
-        RecipientEmployeeCode: normalizedEmployeeCode,
+        RecipientEmployeeCode: canonicalEmployeeCode,
       });
    }
-   if (status === "Rejected") {
+   if (status === "Rejected" && canonicalEmployeeCode) {
   await Notifications.create({
-    EmployeeCode: normalizedEmployeeCode,
+    EmployeeCode: canonicalEmployeeCode,
     Type: "Handset Rejected", // Changed from "Handset Approved"
     Message: `😔 Unfortunately, your recent handset request has been rejected. Please contact IT support for more details.`, // Updated message
     Viewed: false,
     Created_At: new Date(),
-    RecipientEmployeeCode: normalizedEmployeeCode,
+    RecipientEmployeeCode: canonicalEmployeeCode,
   });
 }
     return res.status(200).json({ message: "Handset updated successfully." });
@@ -357,11 +364,12 @@ exports.postHandset = async (req, res) => {
     return res.status(400).json({ message: "Please provide all required fields: EmployeeCode, HandsetName, HandsetPrice, AccessFeePaid." });
   }
   try{
-    // Get staff information for notifications
-    const staff = await findStaffByEmployeeCode(normalizedEmployeeCode);
-    if (!staff) {
+    // Normalized code is only for lookup/validation; persist canonical employees.EmployeeCode.
+    const staff = await findStaffByEmployeeCode(EmployeeCode || normalizedEmployeeCode);
+    if (!staff?.EmployeeCode) {
       return res.status(404).json({ message: "Staff member not found." });
     }
+    const canonicalEmployeeCode = staff.EmployeeCode;
 
     // Check if user already has an existing handset record to determine RequestType
     const existingHandset = await Handsets.findOne({
@@ -373,7 +381,7 @@ exports.postHandset = async (req, res) => {
     const isNewRequest = !existingHandset;
     const requestType = isNewRequest ? 'New' : 'Renewal';
     
-    console.log(`Handset request for ${normalizedEmployeeCode}: ${requestType} request (existing handset: ${existingHandset ? 'Yes' : 'No'})`);
+    console.log(`Handset request for ${canonicalEmployeeCode}: ${requestType} request (existing handset: ${existingHandset ? 'Yes' : 'No'})`);
 
     let cleanedHandsetPrice = typeof HandsetPrice === "string" ? HandsetPrice.slice(2) : HandsetPrice;
     cleanedHandsetPrice = parseFloat(cleanedHandsetPrice);
@@ -411,7 +419,7 @@ exports.postHandset = async (req, res) => {
     const withinLimitAtSubmit = !(submittedExcessAmount > 0);
 
     const newHandset = await Handsets.create({
-      EmployeeCode: normalizedEmployeeCode,
+      EmployeeCode: canonicalEmployeeCode,
       AllocationID: AllocationID || 1, // Use provided AllocationID or default to 1
       HandsetName,
       HandsetPrice: cleanedHandsetPrice,
@@ -446,7 +454,7 @@ exports.postHandset = async (req, res) => {
         const notification = await Notifications.create({
           EmployeeCode: financeMember.EmployeeCode,
           Type: "Handset Request - Finance Review",
-          Message: `${requestType} handset request submitted by ${staff.FullName} (${normalizedEmployeeCode})\n\nDevice: ${HandsetName}\nPrice: N$${cleanedHandsetPrice}\nAccess Fee: N$${AccessFeePaid}\nRequest Type: ${requestType}\nRequest Date: ${new Date().toLocaleDateString()}\n\nPlease review and process according to the handset procedure.`,
+          Message: `${requestType} handset request submitted by ${staff.FullName} (${canonicalEmployeeCode})\n\nDevice: ${HandsetName}\nPrice: N$${cleanedHandsetPrice}\nAccess Fee: N$${AccessFeePaid}\nRequest Type: ${requestType}\nRequest Date: ${new Date().toLocaleDateString()}\n\nPlease review and process according to the handset procedure.`,
           Viewed: false,
           Created_At: new Date(),
           RecipientEmployeeCode: financeMember.EmployeeCode,
@@ -456,10 +464,10 @@ exports.postHandset = async (req, res) => {
 
       // Send email to finance team using dedicated finance email service
       if (financeTeam.length > 0) {
-        const emailSubject = `${requestType} Handset Request - ${staff.FullName} (${normalizedEmployeeCode})`;
+        const emailSubject = `${requestType} Handset Request - ${staff.FullName} (${canonicalEmployeeCode})`;
         
         const handsetData = {
-          EmployeeCode: normalizedEmployeeCode,
+          EmployeeCode: canonicalEmployeeCode,
           HandsetName,
         HandsetPrice: cleanedHandsetPrice,
         AccessFeePaid,
@@ -487,12 +495,12 @@ exports.postHandset = async (req, res) => {
     }
 
     const userNotification = await Notifications.create({
-      EmployeeCode: normalizedEmployeeCode,
+      EmployeeCode: canonicalEmployeeCode,
       Type: "Handset Request Submitted",
       Message: userMessage,
       Viewed: false,
       Created_At: new Date(),
-      RecipientEmployeeCode: normalizedEmployeeCode,
+      RecipientEmployeeCode: canonicalEmployeeCode,
     });
 
     res.status(201).json({

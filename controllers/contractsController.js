@@ -17,7 +17,10 @@ const AirtimeContractSubmission = require("../models/AirtimeContractSubmission")
 const { findStaffByEmployeeCode } = require("../utils/employeeCode");
 const { notifySubmissionParties } = require("../middlewares/submissionNotify");
 const { openSubmissionWhere } = require("../utils/openSubmissions");
-const { resolveSubmissionMsisdn } = require("../utils/airtimeMsisdn");
+const {
+  isRenewalTransaction,
+  resolveSubmissionMsisdn,
+} = require("../utils/airtimeMsisdn");
 
 function formatMoneyNa(value) {
   const amount = Number(value) || 0;
@@ -539,6 +542,7 @@ exports.getStaffContracts = async (req, res) => {
            ${normalizedEmployeeCodeSql("e.EmployeeCode")} COLLATE utf8mb4_general_ci
       WHERE e.EmploymentStatus = 'Active'
       AND ${excludedPackageSql("c.package")}
+      AND LOWER(TRIM(COALESCE(c.subscription_status, ''))) <> 'done'
       ORDER BY c.createdAt DESC`,
       { type: sequelize.QueryTypes.SELECT }
     );
@@ -665,7 +669,11 @@ exports.getStaffContractById = async (req, res) => {
       const status = String(item.subscription_status || "")
         .trim()
         .toLowerCase();
-      return status !== "cancelled" && status !== "canceled";
+      return (
+        status !== "cancelled" &&
+        status !== "canceled" &&
+        status !== "done"
+      );
     });
 
     console.log("Here are my available:", available, airtimeAllocation, sul, contracts);
@@ -750,6 +758,14 @@ exports.createInitialContract = async (req, res) => {
       return res.status(400).json({ message: "Missing required general contract fields or no packages provided." });
     }
 
+    const employee = await findStaffByEmployeeCode(EmployeeCode || normalizedEmployeeCode);
+    if (!employee?.EmployeeCode) {
+      return res.status(404).json({
+        message: "Employee not found for the provided employee code.",
+      });
+    }
+    const canonicalEmployeeCode = employee.EmployeeCode;
+
     // Validate MSISDN for Admin (if 'ApprovalStatus' indicates admin approval, it needs MSISDN)
     // Assuming 'Approved' status implies an Admin is submitting/approving.
     if (ApprovalStatus === "Approved" && !MSISDN) {
@@ -777,7 +793,7 @@ exports.createInitialContract = async (req, res) => {
     for (const pkg of Packages) {
       // Validate essential fields for each package
       if (!pkg.PackageID || !pkg.SubscriptionStatus || pkg.AdjustedMonthlyPrice === undefined || !pkg.ContractDuration) {
-        logError(`Malformed package data received for EmployeeCode ${normalizedEmployeeCode}:`, pkg);
+        logError(`Malformed package data received for EmployeeCode ${canonicalEmployeeCode}:`, pkg);
         // Optionally, roll back any contracts already created in this loop
         return res.status(400).json({ message: `Invalid data for package ID ${pkg.PackageID || 'unknown'}.` });
       }
@@ -826,9 +842,16 @@ exports.createInitialContract = async (req, res) => {
         }
       }
       
-      const individualContractMonthlyPayment = pkg.AdjustedMonthlyPrice;
       const packagePrice = parseFloat(pkg.BaseMonthlyPrice) || 0;
-      const servicePlanMonthlyPrice = packagePrice;
+      // Renewal: package already running — only device counts against wallet.
+      const servicePlanMonthlyPrice = isRenewalTransaction(pkg.SubscriptionStatus)
+        ? 0
+        : packagePrice;
+      const individualContractMonthlyPayment = isRenewalTransaction(
+        pkg.SubscriptionStatus
+      )
+        ? (deviceMonthlyPriceForDb ? deviceMonthlyPriceForDb : 0)
+        : pkg.AdjustedMonthlyPrice;
       const resolvedMsisdn = resolveSubmissionMsisdn(
         pkg.SubscriptionStatus,
         pkg.MSISDN || pkg.msisdn || MSISDN
@@ -838,7 +861,7 @@ exports.createInitialContract = async (req, res) => {
       }
 
       const contractDataForEntry = {
-        EmployeeCode: normalizedEmployeeCode,
+        EmployeeCode: canonicalEmployeeCode,
         PackageID: pkg.PackageID, // Specific PackageID for this entry
         MonthlyPayment: individualContractMonthlyPayment, // Specific monthly payment for this package+device
         LimitCheck: normalizedLimitCheck,
@@ -859,7 +882,7 @@ exports.createInitialContract = async (req, res) => {
       createdContracts.push(newContract);
 
       const submission = await AirtimeContractSubmission.create({
-        employeeCode: normalizedEmployeeCode,
+        employeeCode: canonicalEmployeeCode,
         package: pkg.DisplayName || String(pkg.PackageID),
         msisdn: resolvedMsisdn.msisdn,
         device: deviceNameForDb || null,
@@ -886,9 +909,8 @@ exports.createInitialContract = async (req, res) => {
     // Notify employee + admins in the background. Do not fail the request if notify fails.
     setImmediate(async () => {
       try {
-        const employee = await findStaffByEmployeeCode(normalizedEmployeeCode);
         await notifyAirtimeContractSubmission({
-          employeeCode: normalizedEmployeeCode,
+          employeeCode: canonicalEmployeeCode,
           employee,
           submissions: createdSubmissions,
           monthlyPayment: overallMonthlyPaymentForDb,
@@ -1006,10 +1028,14 @@ exports.updateAirtimeSubmission = async (req, res) => {
 
     const duration = Math.trunc(Number(ContractDuration));
     const packagePrice = parseFloat(BaseMonthlyPrice) || parseFloat(packageRecord.MonthlyPrice) || 0;
-    const servicePlanMonthlyPrice = packagePrice;
-    const monthlyPayment =
-      parseFloat(AdjustedMonthlyPrice) ||
-      servicePlanMonthlyPrice + deviceMonthlyPriceForDb;
+    // Renewal: package already running — only device counts against wallet.
+    const servicePlanMonthlyPrice = isRenewalTransaction(SubscriptionStatus)
+      ? 0
+      : packagePrice;
+    const monthlyPayment = isRenewalTransaction(SubscriptionStatus)
+      ? deviceMonthlyPriceForDb
+      : parseFloat(AdjustedMonthlyPrice) ||
+        servicePlanMonthlyPrice + deviceMonthlyPriceForDb;
     const totalTopUpAmount = Math.max(0, parseFloat(TopUpAmount) || 0);
     const normalizedLimitCheck = (() => {
       const value = String(LimitCheck || "").toLowerCase();
@@ -1236,9 +1262,17 @@ exports.createContract = async (req, res) => {
       return res.status(400).json({ message: "EmployeeCode is required." });
     }
 
+    const employee = await findStaffByEmployeeCode(EmployeeCode || normalizedEmployeeCode);
+    if (!employee?.EmployeeCode) {
+      return res.status(404).json({
+        message: "Employee not found for the provided employee code.",
+      });
+    }
+    const canonicalEmployeeCode = employee.EmployeeCode;
+
     // If contract is created by admin, save complete contract data
     let newContractData = {
-      EmployeeCode: normalizedEmployeeCode,
+      EmployeeCode: canonicalEmployeeCode,
       PackageID,
       MonthlyPayment,
       LimitCheck,
@@ -1295,8 +1329,15 @@ exports.finalizeContract = async (req, res) => {
     ); // Add ContractDuration in months
 
     // Create the final contract with all details
+    const employee = await findStaffByEmployeeCode(initialData.EmployeeCode);
+    if (!employee?.EmployeeCode) {
+      return res.status(404).json({
+        message: "Employee not found for the provided employee code.",
+      });
+    }
+
     const finalContract = await Contract.create({
-      EmployeeCode: normalizeEmployeeCode(initialData.EmployeeCode),
+      EmployeeCode: employee.EmployeeCode,
       PackageID: initialData.PackageID,
       MonthlyPayment: initialData.MonthlyPayment,
       LimitCheck: initialData.LimitCheck,
