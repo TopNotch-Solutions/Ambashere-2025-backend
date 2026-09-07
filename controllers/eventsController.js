@@ -10,6 +10,7 @@ const {
 } = require("../jobs/notificationEmailConfig");
 const {
   findStaffByEmployeeCode,
+  normalizeEmployeeCode,
 } = require("../utils/employeeCode");
 const {
   upsertHandsetRenewalOverride,
@@ -86,6 +87,33 @@ exports.getEvents = async (req, res) => {
         ["EventTime", "ASC"],
       ],
     });
+
+    const targetEmployeeCode = req.query.employeeCode
+      ? normalizeEmployeeCode(req.query.employeeCode)
+      : null;
+
+    if (targetEmployeeCode) {
+      const filtered = events.filter((event) => {
+        const isHandset =
+          Boolean(event.IsHandsetRenewal) ||
+          String(event.EventName || "").toLowerCase().includes("handset") ||
+          String(event.EventDescription || "").toLowerCase().includes("handset");
+
+        const targetCode = normalizeEmployeeCode(event.TargetEmployeeCode);
+
+        if (targetCode) {
+          return targetCode === targetEmployeeCode;
+        }
+
+        if (isHandset) {
+          return false;
+        }
+
+        return true;
+      });
+      return res.json(filtered);
+    }
+
     res.json(events);
   } catch (error) {
     logError(error);
