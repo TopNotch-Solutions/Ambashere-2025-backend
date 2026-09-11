@@ -1,3 +1,4 @@
+const { Op } = require("sequelize");
 const Staff = require("../models/Staff");
 const {
   createToken,
@@ -116,11 +117,14 @@ exports.login = async (req, res) => {
       return res.status(401).json({ message: "Technical difficulties. Please try again." });
     }
 
-    // 2. Database lookup
+    // 2. Database lookup — prefer mail, fall back to userPrincipalName
+    const loginEmails = [
+      ...new Set([userDN.mail, userDN.userPrincipalName].filter(Boolean)),
+    ];
     console.log("Here is the cn", userDN);
     const staff = await Staff.findOne({
       where: {
-        Email: userDN.mail,
+        Email: { [Op.in]: loginEmails },
         EmploymentStatus: "Active",
       },
     });
