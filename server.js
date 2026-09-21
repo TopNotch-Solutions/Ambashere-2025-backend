@@ -122,8 +122,6 @@ app.use(bodyParser.json({
 app.use(bodyParser.urlencoded({ limit: "50mb", extended: true }));
 
 app.use(cookieParser());
-app.use(express.static("public"));
-
 app.use(
   cors({
     origin: ["http://localhost:3000","https://ambasphereuat.mtc.com.na","https://ambasphere.mtc.com.na"],
@@ -133,7 +131,7 @@ app.use(
     exposedHeaders: ['Authorization', 'X-Refresh-Token'],
   })
 );
-
+app.use(express.static("public"));
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 // CSP violation reports (Report-To / report-to)

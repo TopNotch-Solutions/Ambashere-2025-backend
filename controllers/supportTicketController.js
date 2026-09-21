@@ -1,4 +1,6 @@
 const { Op, fn, col, QueryTypes } = require("sequelize");
+const path = require("path");
+const fs = require("fs");
 const sequelize = require("../config/database");
 const SupportTicket = require("../models/SupportTicket");
 const Staff = require("../models/Staff");
@@ -764,5 +766,59 @@ exports.cancelTicket = async (req, res) => {
   } catch (error) {
     logError("Error cancelling support ticket:", error);
     res.status(500).json({ message: "Failed to cancel support ticket." });
+  }
+};
+
+exports.downloadAttachment = async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!id) {
+      return res.status(400).json({ message: "Ticket id is required." });
+    }
+
+    const ticket = await SupportTicket.findByPk(id);
+    if (!ticket) {
+      return res.status(404).json({ message: "Ticket not found." });
+    }
+
+    if (!ticket.image) {
+      return res.status(404).json({ message: "No ID attachment found for this ticket." });
+    }
+
+    const relativePath = String(ticket.image).replace(/^\/+/, "").replace(/\\/g, "/");
+    if (
+      relativePath.includes("..") ||
+      !relativePath.toLowerCase().startsWith("subscriptions/")
+    ) {
+      return res.status(400).json({ message: "Invalid attachment path." });
+    }
+
+    const absolutePath = path.resolve(
+      __dirname,
+      "..",
+      "public",
+      ...relativePath.split("/")
+    );
+    const subscriptionsRoot = path.resolve(__dirname, "..", "public", "subscriptions");
+
+    if (
+      !absolutePath.startsWith(subscriptionsRoot) ||
+      !fs.existsSync(absolutePath)
+    ) {
+      return res.status(404).json({
+        message: "Attachment file was not found on the server.",
+      });
+    }
+
+    const fileName = path.basename(absolutePath);
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="${fileName}"`
+    );
+    return res.sendFile(absolutePath);
+  } catch (error) {
+    logError("Error downloading support ticket attachment:", error);
+    return res.status(500).json({ message: "Failed to download attachment." });
   }
 };

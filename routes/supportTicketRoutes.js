@@ -20,6 +20,11 @@ router.get("/mine", checkTempUsers, supportTicketController.getMyTickets);
 router.put("/:id/cancel", checkTempUsers, supportTicketController.cancelTicket);
 router.get("/", checkAdmin, supportTicketController.getAllTickets);
 router.get("/analytics", checkAdmin, supportTicketController.getTicketAnalytics);
+router.get(
+  "/:id/attachment",
+  checkAdmin,
+  supportTicketController.downloadAttachment
+);
 router.put("/:id/status", checkAdmin, supportTicketController.updateTicketStatus);
 
 module.exports = router;
