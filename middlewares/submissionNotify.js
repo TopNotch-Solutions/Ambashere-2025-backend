@@ -26,6 +26,7 @@ async function notifySubmissionParties({
   userEmailSubject,
   adminEmailSubject,
   ccAdminsOnUserEmail = false,
+  notifySubmittingAdmin = false,
 }) {
   const io = getSocketIo();
   const staff =
@@ -64,7 +65,10 @@ async function notifySubmissionParties({
   const seenEmails = new Set();
 
   for (const admin of adminUsers) {
-    if (normalizeCode(admin.EmployeeCode) === employeeNorm) {
+    if (
+      !notifySubmittingAdmin &&
+      normalizeCode(admin.EmployeeCode) === employeeNorm
+    ) {
       continue;
     }
 

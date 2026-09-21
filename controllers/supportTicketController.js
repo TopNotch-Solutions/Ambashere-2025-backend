@@ -311,16 +311,13 @@ exports.createTicket = async (req, res) => {
       await notifySubmissionParties({
         employeeCode,
         employee,
-        userType: isSubscriptionCancellation
-          ? "Subscription Cancellation Submitted"
-          : "Support Ticket Submitted",
+        userType: "Support Ticket Submitted",
         userMessage: employeeMessage,
-        adminType: isSubscriptionCancellation
-          ? "New Subscription Cancellation"
-          : "New Support Ticket",
+        adminType: "New Support Ticket",
         adminMessage,
         userEmailSubject: `Support Ticket ${ticketNumber} Received`,
         adminEmailSubject: `New Support Ticket ${ticketNumber} - ${employee.FullName} (${employeeCode})`,
+        notifySubmittingAdmin: true,
       });
     } catch (notifyError) {
       logError("Error sending support ticket notifications:", notifyError);
