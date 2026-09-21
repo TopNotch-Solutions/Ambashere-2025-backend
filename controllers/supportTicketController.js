@@ -3,6 +3,7 @@ const sequelize = require("../config/database");
 const SupportTicket = require("../models/SupportTicket");
 const Staff = require("../models/Staff");
 const Notifications = require("../models/Notifications");
+const CdrLiveEmployeeContractDetails = require("../models/crdliveEmployeeContractDetail");
 const logger = require('../middlewares/errorLogger');
 const { logError } = logger;
 const { notifySubmissionParties } = require("../middlewares/submissionNotify");
@@ -12,6 +13,8 @@ const {
   NOTIFICATION_EMAIL_RECIPIENT,
 } = require("../jobs/notificationEmailConfig");
 const { getSocketIo } = require("../config/socket");
+
+const SUBSCRIPTION_CANCELLATION_REASON = "Subscription Cancellation";
 
 const STATUS_TRANSITIONS = {
   pending: ["in progress", "completed"],
@@ -194,10 +197,29 @@ async function notifyAdmins({ employeeCode, type, message }) {
   }
 }
 
-exports.createTicket = async (req, res) => {
-  const { email, subject, message } = req.body;
+function isZeroOrNullDevicePrice(value) {
+  if (value === null || value === undefined || value === "") return true;
+  const parsed = Number(value);
+  return !Number.isNaN(parsed) && parsed === 0;
+}
 
-  if (!email || !subject || !message) {
+function buildSubscriptionCancellationMessage(contract, customMessage) {
+  const trimmed = String(customMessage || "").trim();
+  const details = `I request cancellation of my active subscription. MSISDN linked: ${contract.msisdn || "-"}`;
+
+  if (!trimmed) return details;
+  if (trimmed.includes("I request cancellation of my active subscription")) {
+    return trimmed;
+  }
+  return `${details}\n\nAdditional notes:\n${trimmed}`;
+}
+
+exports.createTicket = async (req, res) => {
+  const { email, subject, message, contractId } = req.body;
+  const isSubscriptionCancellation =
+    String(subject || "").trim() === SUBSCRIPTION_CANCELLATION_REASON;
+
+  if (!email || !subject || (!message && !isSubscriptionCancellation)) {
     return res.status(400).json({
       success: false,
       message: "Email, reason, and message are required.",
@@ -211,6 +233,74 @@ exports.createTicket = async (req, res) => {
     }
 
     const employeeCode = normalizeEmployeeCode(employee.EmployeeCode);
+    let ticketMessage = String(message || "").trim();
+    let image = null;
+    let cancellationMsisdn = null;
+
+    if (isSubscriptionCancellation) {
+      if (!contractId || !req.file) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "Subscription cancellation requires an active free-device contract and a scanned ID PDF attachment.",
+        });
+      }
+
+      const uploadedMime = String(req.file.mimetype || "").toLowerCase();
+      const uploadedExt = String(req.file.originalname || "")
+        .toLowerCase()
+        .endsWith(".pdf");
+      if (uploadedMime !== "application/pdf" && !uploadedExt) {
+        return res.status(400).json({
+          success: false,
+          message: "Only PDF files are allowed for ID attachments.",
+        });
+      }
+
+      const contract = await CdrLiveEmployeeContractDetails.findByPk(contractId);
+
+      if (
+        !contract ||
+        normalizeEmployeeCode(contract.employee_code) !== employeeCode
+      ) {
+        return res.status(404).json({
+          success: false,
+          message: "Selected contract was not found for your account.",
+        });
+      }
+
+      const status = String(contract.subscription_status || "")
+        .trim()
+        .toLowerCase();
+      if (status !== "active") {
+        return res.status(400).json({
+          success: false,
+          message: "Only active contracts can be selected for subscription cancellation.",
+        });
+      }
+
+      if (!isZeroOrNullDevicePrice(contract.device_initial_cost)) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "Subscription cancellation is only available for contracts with a device price of N$ 0.00 or blank.",
+        });
+      }
+
+      ticketMessage = buildSubscriptionCancellationMessage(contract, ticketMessage);
+      cancellationMsisdn = contract.msisdn || null;
+      image = `subscriptions/${req.file.filename}`;
+    } else if (req.file) {
+      image = `subscriptions/${req.file.filename}`;
+    }
+
+    if (!ticketMessage) {
+      return res.status(400).json({
+        success: false,
+        message: "Message is required.",
+      });
+    }
+
     const ticketNumber = await generateTicketNumber(employeeCode);
 
     const ticket = await SupportTicket.create({
@@ -218,30 +308,41 @@ exports.createTicket = async (req, res) => {
       employeeCode,
       email,
       reason: subject,
-      message,
+      message: ticketMessage,
       status: "pending",
+      image,
     });
 
     const employeeMessage =
       `Your support ticket ${ticketNumber} has been received.\n\n` +
       `Reason: ${subject}\n\n` +
-      `Our support team will review your request and update you as your ticket progresses. Thank you for reaching out to us!`;
+      (isSubscriptionCancellation
+        ? "Your subscription cancellation request has been logged. Our support team will review your attached ID and process the request."
+        : "Our support team will review your request and update you as your ticket progresses. Thank you for reaching out to us!");
 
     const adminMessage =
       `A new support ticket has been submitted.\n\n` +
       `Ticket Number: ${ticketNumber}\n` +
       `Employee: ${employee.FullName} (${employeeCode})\n` +
       `Email: ${email}\n` +
-      `Reason: ${subject}\n\n` +
-      `Message:\n${message}`;
+      `Reason: ${subject}\n` +
+      (isSubscriptionCancellation
+        ? `MSISDN linked: ${cancellationMsisdn || "-"}\n` +
+          `ID attachment: ${image || "Attached"}\n\n`
+        : "\n") +
+      `Message:\n${ticketMessage}`;
 
     try {
       await notifySubmissionParties({
         employeeCode,
         employee,
-        userType: "Support Ticket Submitted",
+        userType: isSubscriptionCancellation
+          ? "Subscription Cancellation Submitted"
+          : "Support Ticket Submitted",
         userMessage: employeeMessage,
-        adminType: "New Support Ticket",
+        adminType: isSubscriptionCancellation
+          ? "New Subscription Cancellation"
+          : "New Support Ticket",
         adminMessage,
         userEmailSubject: `Support Ticket ${ticketNumber} Received`,
         adminEmailSubject: `New Support Ticket ${ticketNumber} - ${employee.FullName} (${employeeCode})`,

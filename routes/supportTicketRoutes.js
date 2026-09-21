@@ -6,10 +6,16 @@ const {
   checkAdmin,
   checkTempUsers,
 } = require("../middlewares/authMiddleware");
+const { uploadSingle } = require("../middlewares/uploadSubscriptionImage");
 
 router.use(tokenAuthMiddleware);
 
-router.post("/", checkTempUsers, supportTicketController.createTicket);
+router.post(
+  "/",
+  checkTempUsers,
+  uploadSingle,
+  supportTicketController.createTicket
+);
 router.get("/mine", checkTempUsers, supportTicketController.getMyTickets);
 router.put("/:id/cancel", checkTempUsers, supportTicketController.cancelTicket);
 router.get("/", checkAdmin, supportTicketController.getAllTickets);

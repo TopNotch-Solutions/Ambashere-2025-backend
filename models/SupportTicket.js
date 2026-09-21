@@ -51,6 +51,10 @@ const SupportTicket = sequelize.define(
       type: DataTypes.DATE,
       allowNull: true,
     },
+    image: {
+      type: DataTypes.STRING(500),
+      allowNull: true,
+    },
   },
   {
     tableName: "support_tickets",

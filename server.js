@@ -316,7 +316,7 @@ cron.schedule('0 15,20 * * *', withSyncLock("device-costs", async () => {
   }
 }));
 
-cron.schedule('0 15,20 * * *', withSyncLock("employee-contracts", async () => {
+cron.schedule('* * * * *', withSyncLock("employee-contracts", async () => {
   const transaction = await sequelize.transaction();
 
   try {
