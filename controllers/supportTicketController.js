@@ -1,6 +1,6 @@
-const { Op, fn, col, QueryTypes } = require("sequelize");
-const path = require("path");
 const fs = require("fs");
+const path = require("path");
+const { Op, fn, col, QueryTypes } = require("sequelize");
 const sequelize = require("../config/database");
 const SupportTicket = require("../models/SupportTicket");
 const Staff = require("../models/Staff");
@@ -216,14 +216,6 @@ async function notifyAdmins({ employeeCode, type, message }) {
   }
 }
 
-function isPdfAttachment(file) {
-  const uploadedMime = String(file?.mimetype || "").toLowerCase();
-  const uploadedExt = String(file?.originalname || "")
-    .toLowerCase()
-    .endsWith(".pdf");
-  return uploadedMime === "application/pdf" || uploadedExt;
-}
-
 exports.createTicket = async (req, res) => {
   const { email, subject, message } = req.body;
   const isSubscriptionCancellation =
@@ -244,32 +236,36 @@ exports.createTicket = async (req, res) => {
 
     const employeeCode = normalizeEmployeeCode(employee.EmployeeCode);
     let ticketMessage = String(message || "").trim();
-    let image = null;
+    let imagePath = null;
 
     if (isSubscriptionCancellation) {
       if (!req.file) {
         return res.status(400).json({
           success: false,
           message:
-            "Subscription cancellation requires a certified scanned ID PDF attachment.",
+            "Subscription cancellation requires a scanned ID PDF attachment.",
         });
       }
 
-      if (!isPdfAttachment(req.file)) {
+      const uploadedMime = String(req.file.mimetype || "").toLowerCase();
+      const uploadedExt = String(req.file.originalname || "")
+        .toLowerCase()
+        .endsWith(".pdf");
+      if (uploadedMime !== "application/pdf" && !uploadedExt) {
         return res.status(400).json({
           success: false,
           message: "Only PDF files are allowed for ID attachments.",
         });
       }
 
+      imagePath = `subscriptions/${req.file.filename}`;
+
       if (!ticketMessage) {
         ticketMessage =
-          "I request cancellation of my active subscription. MSISDN linked: -";
+          "I request cancellation of my active subscription.";
       }
-
-      image = `subscriptions/${req.file.filename}`;
     } else if (req.file) {
-      image = `subscriptions/${req.file.filename}`;
+      imagePath = `subscriptions/${req.file.filename}`;
     }
 
     if (!ticketMessage) {
@@ -287,8 +283,8 @@ exports.createTicket = async (req, res) => {
       email,
       reason: subject,
       message: ticketMessage,
+      image: imagePath,
       status: "pending",
-      image,
     });
 
     const employeeMessage =
@@ -305,7 +301,7 @@ exports.createTicket = async (req, res) => {
       `Email: ${email}\n` +
       `Reason: ${subject}\n` +
       (isSubscriptionCancellation
-        ? `ID attachment: ${image || "Attached"}\n\n`
+        ? `ID attachment: ${req.file?.originalname || "Attached"}\n\n`
         : "\n") +
       `Message:\n${ticketMessage}`;
 
@@ -313,7 +309,9 @@ exports.createTicket = async (req, res) => {
       await notifySubmissionParties({
         employeeCode,
         employee,
-        userType: "Support Ticket Submitted",
+        userType: isSubscriptionCancellation
+          ? "Subscription Cancellation Submitted"
+          : "Support Ticket Submitted",
         userMessage: employeeMessage,
         adminType: "New Support Ticket",
         adminMessage,
@@ -337,6 +335,36 @@ exports.createTicket = async (req, res) => {
       message: "Failed to submit support ticket.",
       error: process.env.NODE_ENV === "production" ? undefined : error.message,
     });
+  }
+};
+
+exports.downloadAttachment = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const ticket = await SupportTicket.findByPk(id);
+    if (!ticket) {
+      return res.status(404).json({ message: "Ticket not found." });
+    }
+
+    const imageRel = String(ticket.image || "").trim();
+    if (!imageRel) {
+      return res.status(404).json({ message: "No ID attachment found for this ticket." });
+    }
+
+    const safeRel = imageRel.replace(/^[/\\]+/, "").replace(/\.\./g, "");
+    const absolutePath = path.join(__dirname, "..", "public", safeRel);
+
+    if (!fs.existsSync(absolutePath)) {
+      return res.status(404).json({ message: "Attachment file was not found on the server." });
+    }
+
+    const downloadName =
+      path.basename(absolutePath) || "support-id-attachment.pdf";
+
+    return res.download(absolutePath, downloadName);
+  } catch (error) {
+    logError("Error downloading support ticket attachment:", error);
+    return res.status(500).json({ message: "Failed to download attachment." });
   }
 };
 
@@ -766,59 +794,5 @@ exports.cancelTicket = async (req, res) => {
   } catch (error) {
     logError("Error cancelling support ticket:", error);
     res.status(500).json({ message: "Failed to cancel support ticket." });
-  }
-};
-
-exports.downloadAttachment = async (req, res) => {
-  try {
-    const { id } = req.params;
-    if (!id) {
-      return res.status(400).json({ message: "Ticket id is required." });
-    }
-
-    const ticket = await SupportTicket.findByPk(id);
-    if (!ticket) {
-      return res.status(404).json({ message: "Ticket not found." });
-    }
-
-    if (!ticket.image) {
-      return res.status(404).json({ message: "No ID attachment found for this ticket." });
-    }
-
-    const relativePath = String(ticket.image).replace(/^\/+/, "").replace(/\\/g, "/");
-    if (
-      relativePath.includes("..") ||
-      !relativePath.toLowerCase().startsWith("subscriptions/")
-    ) {
-      return res.status(400).json({ message: "Invalid attachment path." });
-    }
-
-    const absolutePath = path.resolve(
-      __dirname,
-      "..",
-      "public",
-      ...relativePath.split("/")
-    );
-    const subscriptionsRoot = path.resolve(__dirname, "..", "public", "subscriptions");
-
-    if (
-      !absolutePath.startsWith(subscriptionsRoot) ||
-      !fs.existsSync(absolutePath)
-    ) {
-      return res.status(404).json({
-        message: "Attachment file was not found on the server.",
-      });
-    }
-
-    const fileName = path.basename(absolutePath);
-    res.setHeader("Content-Type", "application/pdf");
-    res.setHeader(
-      "Content-Disposition",
-      `attachment; filename="${fileName}"`
-    );
-    return res.sendFile(absolutePath);
-  } catch (error) {
-    logError("Error downloading support ticket attachment:", error);
-    return res.status(500).json({ message: "Failed to download attachment." });
   }
 };

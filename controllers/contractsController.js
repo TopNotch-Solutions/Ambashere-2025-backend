@@ -20,6 +20,8 @@ const { openSubmissionWhere } = require("../utils/openSubmissions");
 const {
   isRenewalTransaction,
   resolveSubmissionMsisdn,
+  packagesMatch,
+  normalizeAirtimeMsisdn,
 } = require("../utils/airtimeMsisdn");
 
 function formatMoneyNa(value) {
@@ -346,6 +348,62 @@ function sumOpenSubmissionMonthly(submissions) {
   }, 0);
 }
 
+/**
+ * For renewal package switches, Available already includes the old CDR package.
+ * Prefer AdjustedMonthlyPrice from the client when provided; otherwise:
+ * - same package → 0
+ * - different package → full new package price
+ */
+async function resolveRenewalServicePlanMonthly({
+  employeeCode,
+  msisdn,
+  selectedPackageName,
+  packagePrice,
+  adjustedMonthlyPrice,
+}) {
+  const parsedAdjusted = parseFloat(adjustedMonthlyPrice);
+  if (!Number.isNaN(parsedAdjusted) && adjustedMonthlyPrice !== undefined && adjustedMonthlyPrice !== null && adjustedMonthlyPrice !== "") {
+    return Math.max(0, parsedAdjusted);
+  }
+
+  const normalizedMsisdn = normalizeAirtimeMsisdn(msisdn);
+  if (!normalizedMsisdn) {
+    return Math.max(0, parseFloat(packagePrice) || 0);
+  }
+
+  try {
+    const activeContracts = await CdrLiveEmployeeContractDetails.findAll({
+      where: {
+        ...excludedPackageWhere,
+        ...normalizedEmployeeCodeWhere("employee_code", employeeCode),
+      },
+    });
+
+    const match = activeContracts.find((contract) => {
+      const contractMsisdn = normalizeAirtimeMsisdn(
+        contract.msisdn || contract.staff_msisdn
+      );
+      const status = String(contract.subscription_status || "")
+        .trim()
+        .toLowerCase();
+      return (
+        contractMsisdn === normalizedMsisdn &&
+        status !== "cancelled" &&
+        status !== "canceled" &&
+        status !== "done"
+      );
+    });
+
+    if (match && packagesMatch(selectedPackageName, match.package)) {
+      return 0;
+    }
+  } catch (error) {
+    logError("Error resolving renewal service plan monthly:", error);
+  }
+
+  return Math.max(0, parseFloat(packagePrice) || 0);
+}
+
 function mapSubmissionToBenefitContract(submission) {
   const deviceMonthly = parseFloat(submission.device_monthly_price) || 0;
   const serviceMonthly = parseFloat(submission.serviceplan_monthly_price) || 0;
@@ -655,13 +713,30 @@ exports.getStaffContractById = async (req, res) => {
       (item) =>
         String(item.subscription_status || "").trim().toLowerCase() === "active"
     );
-    const activeCdrMonthly = activeCdrContracts.reduce(
-      (total, item) =>
-        total +
-        (parseFloat(item.device_monthly_price) || 0) +
-        (parseFloat(item.serviceplan_monthly_price) || 0),
-      0
-    );
+
+    // Open renewal package-switches: don't also count the old CDR serviceplan
+    // (submission already carries the new billable package amount).
+    const openRenewalByMsisdn = new Map();
+    openSubmissions.forEach((submission) => {
+      if (!isRenewalTransaction(submission.transaction_type)) return;
+      const msisdn = normalizeAirtimeMsisdn(submission.msisdn);
+      if (!msisdn) return;
+      openRenewalByMsisdn.set(msisdn, submission);
+    });
+
+    const activeCdrMonthly = activeCdrContracts.reduce((total, item) => {
+      const deviceMonthly = parseFloat(item.device_monthly_price) || 0;
+      const serviceMonthly = parseFloat(item.serviceplan_monthly_price) || 0;
+      const msisdn = normalizeAirtimeMsisdn(item.msisdn || item.MSISDN);
+      const openRenewal = openRenewalByMsisdn.get(msisdn);
+      if (
+        openRenewal &&
+        !packagesMatch(openRenewal.package, item.package || item.PackageName)
+      ) {
+        return total + deviceMonthly;
+      }
+      return total + deviceMonthly + serviceMonthly;
+    }, 0);
     const available =
       (70 / 100) * airtimeAllocation - activeCdrMonthly - openSubmissionMonthly;
 
@@ -843,14 +918,21 @@ exports.createInitialContract = async (req, res) => {
       }
       
       const packagePrice = parseFloat(pkg.BaseMonthlyPrice) || 0;
-      // Renewal: package already running — only device counts against wallet.
+      // Renewal same package → 0; different package → AdjustedMonthlyPrice / full price.
       const servicePlanMonthlyPrice = isRenewalTransaction(pkg.SubscriptionStatus)
-        ? 0
+        ? await resolveRenewalServicePlanMonthly({
+            employeeCode: canonicalEmployeeCode,
+            msisdn: pkg.MSISDN || pkg.msisdn || MSISDN,
+            selectedPackageName: pkg.DisplayName || pkg.PackageName,
+            packagePrice,
+            adjustedMonthlyPrice: pkg.AdjustedMonthlyPrice,
+          })
         : packagePrice;
       const individualContractMonthlyPayment = isRenewalTransaction(
         pkg.SubscriptionStatus
       )
-        ? (deviceMonthlyPriceForDb ? deviceMonthlyPriceForDb : 0)
+        ? (deviceMonthlyPriceForDb ? deviceMonthlyPriceForDb : 0) +
+          servicePlanMonthlyPrice
         : pkg.AdjustedMonthlyPrice;
       const resolvedMsisdn = resolveSubmissionMsisdn(
         pkg.SubscriptionStatus,
@@ -1028,12 +1110,18 @@ exports.updateAirtimeSubmission = async (req, res) => {
 
     const duration = Math.trunc(Number(ContractDuration));
     const packagePrice = parseFloat(BaseMonthlyPrice) || parseFloat(packageRecord.MonthlyPrice) || 0;
-    // Renewal: package already running — only device counts against wallet.
+    // Renewal same package → 0; different package → AdjustedMonthlyPrice / full price.
     const servicePlanMonthlyPrice = isRenewalTransaction(SubscriptionStatus)
-      ? 0
+      ? await resolveRenewalServicePlanMonthly({
+          employeeCode: canonicalEmployeeCode || submission.employeeCode,
+          msisdn: MSISDN || submission.msisdn,
+          selectedPackageName: DisplayName || packageRecord.PackageName,
+          packagePrice,
+          adjustedMonthlyPrice: AdjustedMonthlyPrice,
+        })
       : packagePrice;
     const monthlyPayment = isRenewalTransaction(SubscriptionStatus)
-      ? deviceMonthlyPriceForDb
+      ? deviceMonthlyPriceForDb + servicePlanMonthlyPrice
       : parseFloat(AdjustedMonthlyPrice) ||
         servicePlanMonthlyPrice + deviceMonthlyPriceForDb;
     const totalTopUpAmount = Math.max(0, parseFloat(TopUpAmount) || 0);

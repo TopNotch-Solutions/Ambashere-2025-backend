@@ -10,6 +10,19 @@ function isValidAirtimeMsisdn(value) {
   return /^81\d{7}$/.test(normalizeAirtimeMsisdn(value));
 }
 
+function normalizePackageName(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ");
+}
+
+function packagesMatch(left, right) {
+  const a = normalizePackageName(left);
+  const b = normalizePackageName(right);
+  return Boolean(a && b && a === b);
+}
+
 function resolveSubmissionMsisdn(transactionType, msisdnValue) {
   const msisdn = normalizeAirtimeMsisdn(msisdnValue);
 
@@ -36,5 +49,7 @@ module.exports = {
   normalizeAirtimeMsisdn,
   isRenewalTransaction,
   isValidAirtimeMsisdn,
+  normalizePackageName,
+  packagesMatch,
   resolveSubmissionMsisdn,
 };
