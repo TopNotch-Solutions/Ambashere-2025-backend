@@ -2,6 +2,7 @@ const sequelize = require("../config/database");
 const { Op, QueryTypes } = require("sequelize");
 const HandsetContractSubmission = require("../models/HandsetContractSubmission");
 const CdrLiveEmployeeHandsetDetail = require("../models/crdliveEmployeeHandsetDetail");
+const Staff = require("../models/Staff");
 const logger = require('../middlewares/errorLogger');
 const { logError } = logger;
 const {
@@ -503,6 +504,99 @@ exports.getHandsetSubmissionsPerMonth = async (req, res) => {
   }
 };
 
+exports.getHandsetSubmissionAnalytics = async (req, res) => {
+  try {
+    const [total, pending, inProgress, completed, cancelled] = await Promise.all([
+      HandsetContractSubmission.count(),
+      HandsetContractSubmission.count({ where: { subscription_status: "pending" } }),
+      HandsetContractSubmission.count({
+        where: { subscription_status: "in progress" },
+      }),
+      HandsetContractSubmission.count({
+        where: { subscription_status: "completed" },
+      }),
+      HandsetContractSubmission.count({
+        where: { subscription_status: "cancelled" },
+      }),
+    ]);
+
+    const [timingStats] = await sequelize.query(
+      `
+      SELECT
+        AVG(CASE WHEN inProgressAt IS NOT NULL
+          THEN TIMESTAMPDIFF(MINUTE, contract_submitted_date, inProgressAt) END) AS avgPickupMinutes,
+        AVG(CASE WHEN inProgressAt IS NOT NULL AND completedAt IS NOT NULL
+          THEN TIMESTAMPDIFF(MINUTE, inProgressAt, completedAt) END) AS avgResolutionMinutes,
+        AVG(CASE WHEN completedAt IS NOT NULL
+          THEN TIMESTAMPDIFF(MINUTE, contract_submitted_date, completedAt) END) AS avgTotalMinutes
+      FROM handset_contract_submissions
+      `,
+      { type: QueryTypes.SELECT }
+    );
+
+    const byAssigneeRaw = await sequelize.query(
+      `
+      SELECT
+        assignedAdminCode,
+        COUNT(*) AS ticketCount,
+        SUM(CASE WHEN subscription_status = 'completed' THEN 1 ELSE 0 END) AS completedCount,
+        AVG(CASE WHEN inProgressAt IS NOT NULL AND completedAt IS NOT NULL
+          THEN TIMESTAMPDIFF(MINUTE, inProgressAt, completedAt) END) AS avgResolutionMinutes
+      FROM handset_contract_submissions
+      WHERE assignedAdminCode IS NOT NULL
+      GROUP BY assignedAdminCode
+      ORDER BY ticketCount DESC
+      `,
+      { type: QueryTypes.SELECT }
+    );
+
+    const allEmployees = await Staff.findAll({
+      attributes: ["EmployeeCode", "FullName"],
+    });
+    const employeeMap = Object.fromEntries(
+      allEmployees.map((e) => [normalizeEmployeeCode(e.EmployeeCode), e])
+    );
+
+    const byAssignee = byAssigneeRaw.map((row) => {
+      const admin = employeeMap[normalizeEmployeeCode(row.assignedAdminCode)];
+      return {
+        assignedAdminCode: row.assignedAdminCode,
+        assignedAdminName: admin?.FullName || row.assignedAdminCode,
+        ticketCount: Number(row.ticketCount) || 0,
+        completedCount: Number(row.completedCount) || 0,
+        avgResolutionMinutes:
+          row.avgResolutionMinutes != null
+            ? Math.round(Number(row.avgResolutionMinutes))
+            : null,
+      };
+    });
+
+    res.status(200).json({
+      total,
+      pending,
+      inProgress,
+      completed,
+      cancelled,
+      avgPickupMinutes:
+        timingStats?.avgPickupMinutes != null
+          ? Math.round(Number(timingStats.avgPickupMinutes))
+          : null,
+      avgResolutionMinutes:
+        timingStats?.avgResolutionMinutes != null
+          ? Math.round(Number(timingStats.avgResolutionMinutes))
+          : null,
+      avgTotalMinutes:
+        timingStats?.avgTotalMinutes != null
+          ? Math.round(Number(timingStats.avgTotalMinutes))
+          : null,
+      byAssignee,
+    });
+  } catch (error) {
+    logError("Error fetching handset submission analytics:", error);
+    res.status(500).json({ message: "Failed to fetch submission analytics." });
+  }
+};
+
 exports.getActiveHandsetSubmissions = async (req, res) => {
   try {
     const submissions = await sequelize.query(
@@ -587,9 +681,14 @@ exports.updateHandsetSubmissionStatus = async (req, res) => {
       }
     }
 
+    const now = new Date();
     submission.subscription_status = nextStatus;
     if (nextStatus === "in progress") {
       submission.assignedAdminCode = actingAdminCode;
+      submission.inProgressAt = now;
+    }
+    if (nextStatus === "completed") {
+      submission.completedAt = now;
     }
     await submission.save();
 

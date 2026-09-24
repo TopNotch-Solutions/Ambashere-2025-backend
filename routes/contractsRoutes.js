@@ -24,6 +24,11 @@ router.get(
   contractsController.getAirtimeSubmissionsPerMonth
 );
 router.get(
+  "/submissions/analytics",
+  checkAdmin,
+  contractsController.getAirtimeSubmissionAnalytics
+);
+router.get(
   "/submissions/active",
   checkAdmin,
   contractsController.getActiveAirtimeSubmissions

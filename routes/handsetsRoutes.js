@@ -23,6 +23,11 @@ router.get(
   handsetSubmissionsController.getHandsetSubmissionsPerMonth
 );
 router.get(
+  "/submissions/analytics",
+  checkAdmin,
+  handsetSubmissionsController.getHandsetSubmissionAnalytics
+);
+router.get(
   "/submissions/active",
   checkAdmin,
   handsetSubmissionsController.getActiveHandsetSubmissions

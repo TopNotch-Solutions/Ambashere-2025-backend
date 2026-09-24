@@ -81,6 +81,14 @@ const AirtimeContractSubmission = sequelize.define(
       type: DataTypes.STRING(50),
       allowNull: true,
     },
+    inProgressAt: {
+      type: DataTypes.DATE,
+      allowNull: true,
+    },
+    completedAt: {
+      type: DataTypes.DATE,
+      allowNull: true,
+    },
     isReceived: {
       type: DataTypes.BOOLEAN,
       allowNull: false,
