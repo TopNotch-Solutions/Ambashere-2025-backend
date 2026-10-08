@@ -1,6 +1,7 @@
 const express = require("express");
 const router = express.Router();
 const contractsController = require("../controllers/contractsController");
+const adminCommentsController = require("../controllers/adminCommentsController");
 const { tokenAuthMiddleware, checkAdmin, checkAllUsers, checkAdminUser } = require("../middlewares/authMiddleware");
 
 router.use(tokenAuthMiddleware);
@@ -32,6 +33,16 @@ router.get(
   "/submissions/active",
   checkAdmin,
   contractsController.getActiveAirtimeSubmissions
+);
+router.get(
+  "/submissions/:id/comments",
+  checkAdmin,
+  adminCommentsController.getAirtimeSubmissionComments
+);
+router.post(
+  "/submissions/:id/comments",
+  checkAdmin,
+  adminCommentsController.createAirtimeSubmissionComment
 );
 router.put(
   "/submissions/:id/status",

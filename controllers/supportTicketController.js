@@ -78,6 +78,9 @@ function buildEmployeeStatusMessage(ticket, nextStatus, customMessage) {
 }
 
 const { findStaffByEmployeeCode } = require("../utils/employeeCode");
+const {
+  saveSupportTicketStatusComment,
+} = require("./adminCommentsController");
 
 const ADMIN_CC = [
   "pwilhelm@mtc.com.na",
@@ -667,6 +670,18 @@ exports.updateTicketStatus = async (req, res) => {
     }
 
     await ticket.save();
+
+    try {
+      await saveSupportTicketStatusComment({
+        ticketId: ticket.id,
+        adminCode: actingAdminCode,
+        currentStatus,
+        nextStatus,
+        customMessage,
+      });
+    } catch (commentError) {
+      logError("Error saving support ticket status comment:", commentError);
+    }
 
     const employee = await findStaffByEmployeeCode(ticket.employeeCode);
 

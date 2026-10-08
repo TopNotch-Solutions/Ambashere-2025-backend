@@ -13,6 +13,9 @@ const {
 const { notifySubmissionParties } = require("../middlewares/submissionNotify");
 const { openSubmissionWhere } = require("../utils/openSubmissions");
 const {
+  saveHandsetSubmissionStatusComment,
+} = require("./adminCommentsController");
+const {
   getHandsetRenewalOverrideMap,
   getEffectiveRenewalDate,
   formatRenewalDateLabel,
@@ -633,7 +636,7 @@ exports.getActiveHandsetSubmissions = async (req, res) => {
 exports.updateHandsetSubmissionStatus = async (req, res) => {
   try {
     const { id } = req.params;
-    const { subscription_status: nextStatus } = req.body;
+    const { subscription_status: nextStatus, message: customMessage } = req.body;
     const actingAdminCode = normalizeEmployeeCode(req.user?.EmployeeCode);
 
     if (!id) {
@@ -691,6 +694,18 @@ exports.updateHandsetSubmissionStatus = async (req, res) => {
       submission.completedAt = now;
     }
     await submission.save();
+
+    try {
+      await saveHandsetSubmissionStatusComment({
+        submissionId: submission.id,
+        adminCode: actingAdminCode,
+        currentStatus,
+        nextStatus,
+        customMessage,
+      });
+    } catch (commentError) {
+      logError("Error saving handset submission status comment:", commentError);
+    }
 
     res.status(200).json({
       message: "Submission status updated successfully.",

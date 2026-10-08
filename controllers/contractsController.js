@@ -16,6 +16,9 @@ const { excludedPackageSql, excludedPackageWhere } =
 const AirtimeContractSubmission = require("../models/AirtimeContractSubmission");
 const { findStaffByEmployeeCode } = require("../utils/employeeCode");
 const { notifySubmissionParties } = require("../middlewares/submissionNotify");
+const {
+  saveAirtimeSubmissionStatusComment,
+} = require("./adminCommentsController");
 const { openSubmissionWhere } = require("../utils/openSubmissions");
 const {
   isRenewalTransaction,
@@ -2079,7 +2082,7 @@ exports.getActiveAirtimeSubmissions = async (req, res) => {
 exports.updateAirtimeSubmissionStatus = async (req, res) => {
   try {
     const { id } = req.params;
-    const { subscription_status: nextStatus } = req.body;
+    const { subscription_status: nextStatus, message: customMessage } = req.body;
     const actingAdminCode = normalizeEmployeeCode(req.user?.EmployeeCode);
 
     if (!id) {
@@ -2137,6 +2140,18 @@ exports.updateAirtimeSubmissionStatus = async (req, res) => {
       submission.completedAt = now;
     }
     await submission.save();
+
+    try {
+      await saveAirtimeSubmissionStatusComment({
+        submissionId: submission.id,
+        adminCode: actingAdminCode,
+        currentStatus,
+        nextStatus,
+        customMessage,
+      });
+    } catch (commentError) {
+      logError("Error saving airtime submission status comment:", commentError);
+    }
 
     res.status(200).json({
       message: "Submission status updated successfully.",

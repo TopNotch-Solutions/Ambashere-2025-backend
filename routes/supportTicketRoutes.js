@@ -1,6 +1,7 @@
 const express = require("express");
 const router = express.Router();
 const supportTicketController = require("../controllers/supportTicketController");
+const adminCommentsController = require("../controllers/adminCommentsController");
 const {
   tokenAuthMiddleware,
   checkAdmin,
@@ -16,6 +17,16 @@ router.put("/:id/cancel", checkTempUsers, supportTicketController.cancelTicket);
 router.get("/", checkAdmin, supportTicketController.getAllTickets);
 router.get("/analytics", checkAdmin, supportTicketController.getTicketAnalytics);
 router.get("/:id/attachment", checkAdmin, supportTicketController.downloadAttachment);
+router.get(
+  "/:id/comments",
+  checkAdmin,
+  adminCommentsController.getSupportTicketComments
+);
+router.post(
+  "/:id/comments",
+  checkAdmin,
+  adminCommentsController.createSupportTicketComment
+);
 router.put("/:id/status", checkAdmin, supportTicketController.updateTicketStatus);
 
 module.exports = router;

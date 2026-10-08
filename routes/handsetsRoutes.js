@@ -2,6 +2,7 @@ const express = require("express");
 const router = express.Router();
 const handsetsController = require("../controllers/handsetsController");
 const handsetSubmissionsController = require("../controllers/handsetSubmissionsController");
+const adminCommentsController = require("../controllers/adminCommentsController");
 const { tokenAuthMiddleware, checkAllUsers, checkAdmin, checkAdminUser, checkFinance } = require("../middlewares/authMiddleware");
 
 router.use(tokenAuthMiddleware);
@@ -31,6 +32,16 @@ router.get(
   "/submissions/active",
   checkAdmin,
   handsetSubmissionsController.getActiveHandsetSubmissions
+);
+router.get(
+  "/submissions/:id/comments",
+  checkAdmin,
+  adminCommentsController.getHandsetSubmissionComments
+);
+router.post(
+  "/submissions/:id/comments",
+  checkAdmin,
+  adminCommentsController.createHandsetSubmissionComment
 );
 router.get(
   "/submissions/eligibility/:employeeCode",
