@@ -294,12 +294,13 @@ cron.schedule('0 15,20 * * *', withSyncLock("device-costs", async () => {
 
     const formattedData = dedupeByKey(
       deviceCosts
-        .filter(
-          (device) =>
-            !String(device.device_name || "")
-              .toLowerCase()
-              .includes("samsung galaxy a56")
-        )
+        .filter((device) => {
+          const name = String(device.device_name || "").toLowerCase();
+          return (
+            !name.includes("samsung galaxy a56") &&
+            !name.includes("apple iphone 18")
+          );
+        })
         .map((device) => ({
           device_name: device.device_name,
           amount: parseFloat(device.amount),
