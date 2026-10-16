@@ -68,6 +68,14 @@ const AirtimeContractSubmission = sequelize.define(
       type: DataTypes.STRING(100),
       allowNull: true,
     },
+    line_of_sight_conducted: {
+      type: DataTypes.BOOLEAN,
+      allowNull: true,
+    },
+    installation_location: {
+      type: DataTypes.STRING(255),
+      allowNull: true,
+    },
     subscription_status: {
       type: DataTypes.ENUM("pending", "in progress", "completed", "cancelled"),
       allowNull: false,

@@ -21,7 +21,7 @@ const {
 } = require("./adminCommentsController");
 const { openSubmissionWhere } = require("../utils/openSubmissions");
 const {
-  isRenewalTransaction,
+  isRenewalLikeTransaction,
   resolveSubmissionMsisdn,
   packagesMatch,
   normalizeAirtimeMsisdn,
@@ -35,6 +35,17 @@ function formatMoneyNa(value) {
   })}`;
 }
 
+function isSpectraPackageName(name) {
+  const normalized = String(name || "")
+    .trim()
+    .toLowerCase();
+  return (
+    normalized.startsWith("spectra") ||
+    normalized.startsWith("upgrade spectra") ||
+    /\bspectra\b/.test(normalized)
+  );
+}
+
 function buildSubmissionDetailsMessage(submissions) {
   if (!submissions?.length) return "No package details available.";
 
@@ -46,6 +57,7 @@ function buildSubmissionDetailsMessage(submissions) {
         ? `${Math.trunc(Number(submission.contract_duration))} months`
         : "-";
       const topUp = formatMoneyNa(submission.top_up_amount);
+      const isSpectra = isSpectraPackageName(packageName);
       return (
         `Package ${index + 1}: ${packageName}\n` +
         `Device: ${device}\n` +
@@ -54,7 +66,17 @@ function buildSubmissionDetailsMessage(submissions) {
         `Duration: ${duration}\n` +
         `Top-up: ${topUp}\n` +
         `Transaction Type: ${submission.transaction_type || "-"}\n` +
-        `MSISDN: ${submission.msisdn || "-"}\n` +
+        `${isSpectra ? "Spectra Account Number" : "MSISDN"}: ${
+          submission.msisdn || "-"
+        }\n` +
+        (isSpectra && submission.line_of_sight_conducted != null
+          ? `Line-of-sight assessment conducted: ${
+              submission.line_of_sight_conducted ? "Yes" : "No"
+            }\n`
+          : "") +
+        (isSpectra && submission.installation_location
+          ? `Installation location: ${submission.installation_location}\n`
+          : "") +
         `Plan Monthly: ${formatMoneyNa(submission.serviceplan_monthly_price)}\n` +
         `Device Monthly: ${formatMoneyNa(submission.device_monthly_price)}\n` +
         `Status: ${submission.subscription_status || "pending"}`
@@ -369,8 +391,9 @@ async function resolveRenewalServicePlanMonthly({
     return Math.max(0, parsedAdjusted);
   }
 
+  const trimmedAccount = String(msisdn || "").trim();
   const normalizedMsisdn = normalizeAirtimeMsisdn(msisdn);
-  if (!normalizedMsisdn) {
+  if (!trimmedAccount && !normalizedMsisdn) {
     return Math.max(0, parseFloat(packagePrice) || 0);
   }
 
@@ -383,14 +406,19 @@ async function resolveRenewalServicePlanMonthly({
     });
 
     const match = activeContracts.find((contract) => {
-      const contractMsisdn = normalizeAirtimeMsisdn(
-        contract.msisdn || contract.staff_msisdn
-      );
+      const rawAccount = String(
+        contract.msisdn || contract.staff_msisdn || ""
+      ).trim();
+      const contractMsisdn = normalizeAirtimeMsisdn(rawAccount);
       const status = String(contract.subscription_status || "")
         .trim()
         .toLowerCase();
+      const accountMatches =
+        (trimmedAccount &&
+          rawAccount.toLowerCase() === trimmedAccount.toLowerCase()) ||
+        (normalizedMsisdn && contractMsisdn === normalizedMsisdn);
       return (
-        contractMsisdn === normalizedMsisdn &&
+        accountMatches &&
         status !== "cancelled" &&
         status !== "canceled" &&
         status !== "done"
@@ -721,7 +749,7 @@ exports.getStaffContractById = async (req, res) => {
     // (submission already carries the new billable package amount).
     const openRenewalByMsisdn = new Map();
     openSubmissions.forEach((submission) => {
-      if (!isRenewalTransaction(submission.transaction_type)) return;
+      if (!isRenewalLikeTransaction(submission.transaction_type)) return;
       const msisdn = normalizeAirtimeMsisdn(submission.msisdn);
       if (!msisdn) return;
       openRenewalByMsisdn.set(msisdn, submission);
@@ -921,8 +949,8 @@ exports.createInitialContract = async (req, res) => {
       }
       
       const packagePrice = parseFloat(pkg.BaseMonthlyPrice) || 0;
-      // Renewal same package → 0; different package → AdjustedMonthlyPrice / full price.
-      const servicePlanMonthlyPrice = isRenewalTransaction(pkg.SubscriptionStatus)
+      // Renewal/Upgrade same package → 0; different package → AdjustedMonthlyPrice / full price.
+      const servicePlanMonthlyPrice = isRenewalLikeTransaction(pkg.SubscriptionStatus)
         ? await resolveRenewalServicePlanMonthly({
             employeeCode: canonicalEmployeeCode,
             msisdn: pkg.MSISDN || pkg.msisdn || MSISDN,
@@ -931,15 +959,17 @@ exports.createInitialContract = async (req, res) => {
             adjustedMonthlyPrice: pkg.AdjustedMonthlyPrice,
           })
         : packagePrice;
-      const individualContractMonthlyPayment = isRenewalTransaction(
+      const individualContractMonthlyPayment = isRenewalLikeTransaction(
         pkg.SubscriptionStatus
       )
         ? (deviceMonthlyPriceForDb ? deviceMonthlyPriceForDb : 0) +
           servicePlanMonthlyPrice
         : pkg.AdjustedMonthlyPrice;
+      const packageDisplayName = pkg.DisplayName || pkg.PackageName;
       const resolvedMsisdn = resolveSubmissionMsisdn(
         pkg.SubscriptionStatus,
-        pkg.MSISDN || pkg.msisdn || MSISDN
+        pkg.MSISDN || pkg.msisdn || MSISDN,
+        { isSpectra: isSpectraPackageName(packageDisplayName) }
       );
       if (resolvedMsisdn.error) {
         return res.status(400).json({ message: resolvedMsisdn.error });
@@ -966,6 +996,23 @@ exports.createInitialContract = async (req, res) => {
       const newContract = await Contracts.create(contractDataForEntry);
       createdContracts.push(newContract);
 
+      const lineOfSightRaw = pkg.LineOfSightConducted ?? pkg.line_of_sight_conducted;
+      const lineOfSightConducted =
+        lineOfSightRaw === true ||
+        lineOfSightRaw === 1 ||
+        lineOfSightRaw === "1" ||
+        String(lineOfSightRaw || "").trim().toLowerCase() === "yes"
+          ? true
+          : lineOfSightRaw === false ||
+              lineOfSightRaw === 0 ||
+              lineOfSightRaw === "0" ||
+              String(lineOfSightRaw || "").trim().toLowerCase() === "no"
+            ? false
+            : null;
+      const installationLocation = String(
+        pkg.InstallationLocation || pkg.installation_location || ""
+      ).trim() || null;
+
       const submission = await AirtimeContractSubmission.create({
         employeeCode: canonicalEmployeeCode,
         package: pkg.DisplayName || String(pkg.PackageID),
@@ -980,6 +1027,8 @@ exports.createInitialContract = async (req, res) => {
         serviceplan_monthly_price: servicePlanMonthlyPrice,
         contract_submitted_date: new Date(),
         transaction_type: pkg.SubscriptionStatus || null,
+        line_of_sight_conducted: lineOfSightConducted,
+        installation_location: installationLocation,
         subscription_status: "pending",
       });
       createdSubmissions.push(submission);
@@ -1033,6 +1082,10 @@ exports.updateAirtimeSubmission = async (req, res) => {
       TopUpAmount,
       LimitCheck,
       MSISDN,
+      LineOfSightConducted,
+      InstallationLocation,
+      line_of_sight_conducted,
+      installation_location,
     } = req.body;
 
     if (!id) {
@@ -1113,8 +1166,8 @@ exports.updateAirtimeSubmission = async (req, res) => {
 
     const duration = Math.trunc(Number(ContractDuration));
     const packagePrice = parseFloat(BaseMonthlyPrice) || parseFloat(packageRecord.MonthlyPrice) || 0;
-    // Renewal same package → 0; different package → AdjustedMonthlyPrice / full price.
-    const servicePlanMonthlyPrice = isRenewalTransaction(SubscriptionStatus)
+    // Renewal/Upgrade same package → 0; different package → AdjustedMonthlyPrice / full price.
+    const servicePlanMonthlyPrice = isRenewalLikeTransaction(SubscriptionStatus)
       ? await resolveRenewalServicePlanMonthly({
           employeeCode: canonicalEmployeeCode || submission.employeeCode,
           msisdn: MSISDN || submission.msisdn,
@@ -1123,7 +1176,7 @@ exports.updateAirtimeSubmission = async (req, res) => {
           adjustedMonthlyPrice: AdjustedMonthlyPrice,
         })
       : packagePrice;
-    const monthlyPayment = isRenewalTransaction(SubscriptionStatus)
+    const monthlyPayment = isRenewalLikeTransaction(SubscriptionStatus)
       ? deviceMonthlyPriceForDb + servicePlanMonthlyPrice
       : parseFloat(AdjustedMonthlyPrice) ||
         servicePlanMonthlyPrice + deviceMonthlyPriceForDb;
@@ -1140,12 +1193,32 @@ exports.updateAirtimeSubmission = async (req, res) => {
       return "Exceeding Limit";
     })();
 
-    const resolvedMsisdn = resolveSubmissionMsisdn(SubscriptionStatus, MSISDN);
+    const packageDisplayName =
+      DisplayName || packageRecord.PackageName || submission.package;
+    const resolvedMsisdn = resolveSubmissionMsisdn(SubscriptionStatus, MSISDN, {
+      isSpectra: isSpectraPackageName(packageDisplayName),
+    });
     if (resolvedMsisdn.error) {
       return res.status(400).json({ message: resolvedMsisdn.error });
     }
 
     const previousSnapshot = submission.toJSON();
+
+    const lineOfSightRaw = LineOfSightConducted ?? line_of_sight_conducted;
+    const lineOfSightConducted =
+      lineOfSightRaw === true ||
+      lineOfSightRaw === 1 ||
+      lineOfSightRaw === "1" ||
+      String(lineOfSightRaw || "").trim().toLowerCase() === "yes"
+        ? true
+        : lineOfSightRaw === false ||
+            lineOfSightRaw === 0 ||
+            lineOfSightRaw === "0" ||
+            String(lineOfSightRaw || "").trim().toLowerCase() === "no"
+          ? false
+          : null;
+    const installationLocation =
+      String(InstallationLocation || installation_location || "").trim() || null;
 
     submission.package = DisplayName || packageRecord.PackageName;
     submission.device = deviceNameForDb;
@@ -1155,6 +1228,12 @@ exports.updateAirtimeSubmission = async (req, res) => {
     submission.contract_duration = duration;
     submission.top_up_amount = totalTopUpAmount;
     submission.device_upfront_payment = upfrontPaymentForDb;
+    if (lineOfSightConducted !== null) {
+      submission.line_of_sight_conducted = lineOfSightConducted;
+    }
+    if (installationLocation !== null) {
+      submission.installation_location = installationLocation;
+    }
     submission.device_monthly_price = deviceMonthlyPriceForDb;
     submission.serviceplan_monthly_price = servicePlanMonthlyPrice;
     submission.transaction_type = SubscriptionStatus || submission.transaction_type || "New";

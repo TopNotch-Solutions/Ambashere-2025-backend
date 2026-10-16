@@ -6,6 +6,15 @@ function isRenewalTransaction(value) {
   return String(value || "").trim().toLowerCase() === "renewal";
 }
 
+function isUpgradeTransaction(value) {
+  return String(value || "").trim().toLowerCase() === "upgrade";
+}
+
+/** Upgrade uses the same MSISDN / package-credit rules as Renewal. */
+function isRenewalLikeTransaction(value) {
+  return isRenewalTransaction(value) || isUpgradeTransaction(value);
+}
+
 function isValidAirtimeMsisdn(value) {
   return /^81\d{7}$/.test(normalizeAirtimeMsisdn(value));
 }
@@ -23,14 +32,30 @@ function packagesMatch(left, right) {
   return Boolean(a && b && a === b);
 }
 
-function resolveSubmissionMsisdn(transactionType, msisdnValue) {
+function resolveSpectraAccountNumber(accountValue) {
+  const account = String(accountValue || "").trim();
+  if (!account) {
+    return { error: "Spectra Account Number is required." };
+  }
+  return { msisdn: account };
+}
+
+function resolveSubmissionMsisdn(
+  transactionType,
+  msisdnValue,
+  { isSpectra = false } = {}
+) {
+  if (isSpectra) {
+    return resolveSpectraAccountNumber(msisdnValue);
+  }
+
   const msisdn = normalizeAirtimeMsisdn(msisdnValue);
 
-  if (isRenewalTransaction(transactionType)) {
+  if (isRenewalLikeTransaction(transactionType)) {
     if (!isValidAirtimeMsisdn(msisdn)) {
       return {
         error:
-          "Renewal requires a valid MSISDN starting with 81, e.g. 812081591.",
+          "Renewal/Upgrade requires a valid MSISDN starting with 81, e.g. 812081591.",
       };
     }
     return { msisdn };
@@ -48,8 +73,11 @@ function resolveSubmissionMsisdn(transactionType, msisdnValue) {
 module.exports = {
   normalizeAirtimeMsisdn,
   isRenewalTransaction,
+  isUpgradeTransaction,
+  isRenewalLikeTransaction,
   isValidAirtimeMsisdn,
   normalizePackageName,
   packagesMatch,
+  resolveSpectraAccountNumber,
   resolveSubmissionMsisdn,
 };
