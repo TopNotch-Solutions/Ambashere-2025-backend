@@ -7,6 +7,7 @@ const logger = require('../middlewares/errorLogger');
 const { logError } = logger;
 const {
   normalizeEmployeeCode,
+  areEmployeeCodesEquivalent,
   normalizedEmployeeCodeWhere,
   findStaffByEmployeeCode,
 } = require("../utils/employeeCode");
@@ -59,14 +60,12 @@ function normalizedEmployeeCodeSql(columnName) {
 }
 
 async function getEligibility(employeeCode) {
-  const staff = await findStaffByEmployeeCode(employeeCode);
-  const storedCode = staff?.EmployeeCode || employeeCode;
   const normalized = normalizeEmployeeCode(employeeCode);
 
   const openSubmissions = await HandsetContractSubmission.findAll({
     where: {
-      employeeCode: storedCode,
       ...openSubmissionWhere(),
+      [Op.and]: [normalizedEmployeeCodeWhere("employeeCode", normalized)],
     },
     order: [["contract_submitted_date", "DESC"]],
   });
@@ -440,7 +439,7 @@ exports.updateHandsetSubmission = async (req, res) => {
       return res.status(404).json({ message: "Submission not found." });
     }
 
-    if (normalizeEmployeeCode(submission.employeeCode) !== employeeCode) {
+    if (!areEmployeeCodesEquivalent(submission.employeeCode, employeeCode)) {
       return res.status(403).json({
         message: "You can only edit your own handset request.",
       });
@@ -735,7 +734,7 @@ exports.markHandsetSubmissionReceived = async (req, res) => {
       return res.status(404).json({ message: "Submission not found." });
     }
 
-    if (normalizeEmployeeCode(submission.employeeCode) !== employeeCode) {
+    if (!areEmployeeCodesEquivalent(submission.employeeCode, employeeCode)) {
       return res.status(403).json({
         message: "You can only mark your own handset contract as received.",
       });
@@ -799,7 +798,7 @@ exports.cancelHandsetSubmission = async (req, res) => {
       return res.status(404).json({ message: "Submission not found." });
     }
 
-    if (normalizeEmployeeCode(submission.employeeCode) !== employeeCode) {
+    if (!areEmployeeCodesEquivalent(submission.employeeCode, employeeCode)) {
       return res.status(403).json({
         message: "You can only cancel your own handset request.",
       });

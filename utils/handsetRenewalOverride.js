@@ -1,6 +1,8 @@
 const HandsetRenewalOverride = require("../models/HandsetRenewalOverride");
 const {
   normalizeEmployeeCode,
+  expandEmployeeCodeAliases,
+  areEmployeeCodesEquivalent,
   findStaffByEmployeeCode,
 } = require("./employeeCode");
 
@@ -99,7 +101,7 @@ async function clearHandsetRenewalOverride(employeeCode) {
   const rows = await HandsetRenewalOverride.findAll();
   let cleared = 0;
   for (const row of rows) {
-    if (normalizeEmployeeCode(row.employeeCode) === normalizedTarget) {
+    if (areEmployeeCodesEquivalent(row.employeeCode, normalizedTarget)) {
       await row.destroy();
       cleared += 1;
     }
@@ -111,7 +113,9 @@ async function getHandsetRenewalOverrideMap() {
   const rows = await HandsetRenewalOverride.findAll();
   const map = new Map();
   for (const row of rows) {
-    map.set(normalizeEmployeeCode(row.employeeCode), row);
+    expandEmployeeCodeAliases(row.employeeCode).forEach((alias) => {
+      map.set(alias, row);
+    });
   }
   return map;
 }
@@ -164,7 +168,11 @@ async function clearOverridesSupersededByCdrHandsets(handsets = []) {
 
   let cleared = 0;
   for (const [code, rows] of byEmployee.entries()) {
-    const override = overrideMap.get(code);
+    const override =
+      overrideMap.get(code) ||
+      expandEmployeeCodeAliases(code)
+        .map((alias) => overrideMap.get(alias))
+        .find(Boolean);
     if (!override) continue;
 
     const superseded = rows.some((handset) =>

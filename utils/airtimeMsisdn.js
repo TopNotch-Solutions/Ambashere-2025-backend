@@ -32,12 +32,12 @@ function packagesMatch(left, right) {
   return Boolean(a && b && a === b);
 }
 
-function resolveSpectraAccountNumber(accountValue) {
+function resolveSpectraAccountNumber(accountValue, { required = true } = {}) {
   const account = String(accountValue || "").trim();
-  if (!account) {
+  if (required && !account) {
     return { error: "Spectra Account Number is required." };
   }
-  return { msisdn: account };
+  return { msisdn: account || null };
 }
 
 function resolveSubmissionMsisdn(
@@ -46,7 +46,10 @@ function resolveSubmissionMsisdn(
   { isSpectra = false } = {}
 ) {
   if (isSpectra) {
-    return resolveSpectraAccountNumber(msisdnValue);
+    // New: account optional. Renewal/Upgrade: required (free-form).
+    return resolveSpectraAccountNumber(msisdnValue, {
+      required: isRenewalLikeTransaction(transactionType),
+    });
   }
 
   const msisdn = normalizeAirtimeMsisdn(msisdnValue);

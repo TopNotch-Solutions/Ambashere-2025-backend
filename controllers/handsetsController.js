@@ -16,30 +16,12 @@ const {
   getHandsetRenewalOverrideMap,
   applyEffectiveRenewalDate,
 } = require("../utils/handsetRenewalOverride");
-
-function normalizeEmployeeCode(employeeCode) {
-  return String(employeeCode || "")
-    .trim()
-    .replace(/[-\s]/g, "")
-    .toUpperCase();
-}
-
-function normalizedEmployeeCodeWhere(columnName, employeeCode) {
-  return sequelize.where(
-    sequelize.fn(
-      "REPLACE",
-      sequelize.fn(
-        "REPLACE",
-        sequelize.fn("UPPER", sequelize.col(columnName)),
-        "-",
-        ""
-      ),
-      " ",
-      ""
-    ),
-    normalizeEmployeeCode(employeeCode)
-  );
-}
+const {
+  normalizeEmployeeCode,
+  expandEmployeeCodeAliases,
+  normalizedEmployeeCodeWhere,
+  findStaffByEmployeeCode,
+} = require("../utils/employeeCode");
 
 function normalizedEmployeeCodeSql(columnName) {
   return `REPLACE(REPLACE(UPPER(${columnName}), '-', ''), ' ', '')`;
@@ -108,21 +90,23 @@ async function getOpenHandsetSubmissions(employeeCode = null) {
   });
 }
 
-async function findStaffByEmployeeCode(employeeCode) {
-  return Staff.findOne({
-    where: normalizedEmployeeCodeWhere("EmployeeCode", employeeCode),
-  });
-}
-
 async function getStaffMapByEmployeeCodes(employeeCodes, attributes) {
-  const normalizedCodes = new Set(employeeCodes.map(normalizeEmployeeCode).filter(Boolean));
+  const normalizedCodes = new Set();
+  (employeeCodes || []).forEach((code) => {
+    expandEmployeeCodeAliases(code).forEach((alias) =>
+      normalizedCodes.add(alias)
+    );
+  });
   const employees = await Staff.findAll({ attributes });
   const employeeMap = {};
 
   employees.forEach((employee) => {
     const normalizedCode = normalizeEmployeeCode(employee.EmployeeCode);
     if (normalizedCodes.has(normalizedCode)) {
-      employeeMap[normalizedCode] = employee;
+      // Index under every alias so CDR / staff code variants resolve.
+      expandEmployeeCodeAliases(normalizedCode).forEach((alias) => {
+        employeeMap[alias] = employee;
+      });
     }
   });
 
