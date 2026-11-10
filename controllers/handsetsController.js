@@ -242,7 +242,7 @@ exports.updateById = async (req, res) => {
   await Notifications.create({
     EmployeeCode: canonicalEmployeeCode,
     Type: "Handset Rejected", // Changed from "Handset Approved"
-    Message: `😔 Unfortunately, your recent handset request has been rejected. Please contact IT support for more details.`, // Updated message
+    Message: `Unfortunately, your recent handset request has been rejected. Please contact IT support for more details.`, // Updated message
     Viewed: false,
     Created_At: new Date(),
     RecipientEmployeeCode: canonicalEmployeeCode,

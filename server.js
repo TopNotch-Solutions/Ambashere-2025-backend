@@ -298,7 +298,8 @@ cron.schedule('0 8,15 * * *', withSyncLock("device-costs", async () => {
           const name = String(device.device_name || "").toLowerCase();
           return (
             !name.includes("samsung galaxy a56") &&
-            !name.includes("apple iphone 18")
+            !name.includes("apple iphone 18") &&
+            !name.includes("apple iPhone 13 128GB")
           );
         })
         .map((device) => ({

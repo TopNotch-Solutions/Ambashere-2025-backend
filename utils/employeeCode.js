@@ -39,6 +39,7 @@ const EMPLOYEE_CODE_ALIAS_PAIRS = [
   ["EBAUL02", "EBAUL01"],
   ["EMANG02", "EMUNG02"],
   ["EKAMW01", "EKAMWI01"],
+  ["ETJIT01","E-TJIT02"]
 ];
 
 function buildEmployeeCodeAliasLookup(pairs) {
